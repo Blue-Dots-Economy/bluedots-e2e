@@ -26,7 +26,8 @@ first, and records the places where reading the code changed the answer.
 10. [CI](#10-ci)
 11. [Repository layout](#11-repository-layout)
 12. [Work breakdown](#12-work-breakdown)
-13. [Open questions](#13-open-questions)
+13. [Relationship to epic #1](#13-relationship-to-epic-1)
+14. [Open questions](#14-open-questions)
 
 ---
 
@@ -39,9 +40,16 @@ Docker Compose stack, Keycloak-minted identities, the step framework, three
 report tiers, the harness's own self-verification, and CI bound to a
 release-candidate tag.
 
-One journey ships with it — **J2, item → event → search hit**, on `purple_dot`.
-The compose file defines the whole stack; profiles boot only what a journey
-needs.
+One journey ships with it — **J2, item → event → search hit** — on **both
+`purple_dot` and `blue_dot`**. The compose file defines the whole stack;
+profiles boot only what a journey needs.
+
+Running two networks on the first journey is deliberate. The design's central
+claim is that a network is a matrix parameter rather than a copy, and a
+single-network run asserts that claim without testing it. Blue is also the
+network worth having: it declares **31** vectorize-marked fields against
+purple's **9**, so it is far more exposed to ingestion regressions than the
+network the runbook happens to cover.
 
 ### Out
 
@@ -222,7 +230,7 @@ a profile declaration, not a compose change.
 | postgres-pgvector | built by harness | `dpg-db-postgis-pgvector:17`, unpublished |
 | redis | `redis:7.2-alpine` | signals-dpg's stream and queues |
 | keycloak | built by harness | aggregator-dpg realm, SHA-pinned |
-| schema-server | built by harness | static server over pinned `bluedots-schemas` |
+| schema-server | built by harness | static server over pinned `bluedots-schemas`; serves purple and blue |
 | signals-dpg api | `ghcr.io/.../signals-dpg/api` | |
 | signals-search api | `ghcr.io/.../signals-search/<service>` | shares the Postgres above; image name unconfirmed (§13.2) |
 | signals-search worker | same image, worker entrypoint | consumer group `signals-search` |
@@ -264,7 +272,7 @@ For J2:
   insert.
 - **Postgres.** signals-dpg migrations must have completed before phase 3
   begins — gated on a real signal, never slept on.
-- **Schemas.** `purple_dot` served from the pinned checkout.
+- **Schemas.** `purple_dot` and `blue_dot` served from the pinned checkout.
 
 ### Realm rendering
 
@@ -302,9 +310,14 @@ created through the Admin API produces a genuine token, and the service performs
 its real authorization check. No OTP scraping, and **no test-only code in the
 product**.
 
-`purple_dot` declares 9 vectorize-marked fields against `blue_dot`'s 31, which
-is why the parent design tiers J2 across both networks. The proof run covers
-purple only; adding blue is a matrix entry, not test code.
+Both networks are served, and both are seeded. `purple_dot` declares 9
+vectorize-marked fields against `blue_dot`'s 31, so the two exercise materially
+different ingestion paths through the same steps.
+
+Fixtures are per-network generators, so blue does not get its own scenario — it
+gets a row in the matrix and a fixture. If adding blue turns out to need test
+code, the framework has failed its acceptance criterion (§12) and that is worth
+discovering on journey one rather than journey five.
 
 ---
 
@@ -366,7 +379,7 @@ defineJourney({
   id:         'J2',
   title:      'A new profile becomes findable in search',
   capability: 'search-and-discovery',
-  networks:   ['purple_dot'],
+  networks:   ['purple_dot', 'blue_dot'],
 
   steps: [
     createProfile({ as: 'seeker' }),
@@ -422,6 +435,12 @@ conditions are assertions about Redis that no test would notice going wrong.
 Waits are concentrated in one small module. That is what makes this reviewable:
 a bare `sleep` in a diff can be rejected because the alternative already exists
 and is named.
+
+With two networks, scheduling matters. Scenarios parallelize **by network** and
+serialize **within** one. The drain conditions are measured against a single
+shared consumer group, so two networks ingesting concurrently would each see the
+other's backlog and neither could tell drained from busy. Per-network
+serialization keeps each run's baseline meaningful.
 
 ---
 
@@ -518,7 +537,7 @@ available if that proves too weak.
 bluedots-e2e/
 │
 ├── journeys/
-│   └── search/                 # J2
+│   └── search/                 # J2 (purple_dot, blue_dot)
 │
 ├── steps/
 │   ├── actors/
@@ -557,12 +576,12 @@ a fresh reader.
 | T2 | Resolve phase: branch/tag → digests, per-service override | Mutable tags are pinned | T1 |
 | T3 | Compose: full stack + profiles; build keycloak and pgvector images | The stack boots | T1 |
 | T4 | Health and migration gating | `STACK_UNHEALTHY` is a real signal | T3 |
-| T5 | Seed: realm import, participant mint, client-credentials token | Real authorization, no test-only product code | T4 |
+| T5 | Seed: realm import, participant mint, API key via `seed_service_users.ts` | Real authorization, no test-only product code | T4, epic P0 |
 | T6 | Generated clients from the three published `openapi.json` | Typecheck as a second contract check | T1 |
 | T7 | Step framework: `defineJourney`, labels, lint guards | Scenario six is cheap | T6 |
 | T8 | Awaiters and drain detection (`XINFO`, `XPENDING`, DLQ) | No sleeps anywhere | T7 |
 | T9 | Canary scenarios, negative controls, `harness-selftest` as a per-PR check | The gate cannot go vacuously green | T8 |
-| T10 | J2 | One real journey passes | T5, T9 |
+| T10 | J2 on purple_dot and blue_dot | One real journey passes, on two networks | T5, T9 |
 | T11 | Report renderers: `summary.json` → tiers 1/2/3 + triage bundle | Legible evidence | T10 |
 | T12 | CI workflow on RC tag | Bound to the release | T11 |
 
@@ -572,7 +591,34 @@ and a second network must cost **no test code**.
 
 ---
 
-## 13. Open questions
+## 13. Relationship to epic #1
+
+`Blue-Dots-Economy/bluedots-e2e#1` carries the approved phasing (P0–P5) and says
+**start at P1**, the contract lane. This spec deliberately starts elsewhere, and
+the deviation is recorded here rather than left for someone to trip over.
+
+| | Epic #1 | This spec | Why |
+|---|---|---|---|
+| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.4 keeps that visible. |
+| First scenario | P2, onboarding → dashboard | J2, item → event → search hit | J2 exercises the asynchronous spine, which is where flake lives. A flaky suite gets disabled, so that risk is worth retiring first. |
+| Networks | purple + blue | purple + blue | Unchanged from the epic. |
+
+Two of the epic's P0 items are prerequisites this spec depends on, and neither
+is optional:
+
+1. **notification-service has no `openapi.json`.** Epic P0 adds `spec:dump`, a
+   committed spec and a freshness gate. Until then its client is hand-written
+   and gets no typecheck-level contract check (§6). J2 does not touch the
+   service, so this blocks T10 but not T6.
+2. **`seed_service_users.ts` randomizes org ids and keys.** The harness cannot
+   predict what it provisioned, so phase 3 cannot use the key it mints (§5).
+   Epic P0 makes the script accept pinned values. **T5 depends on that change
+   landing in signals-dpg first.** Per the epic, this touches production
+   provisioning rather than test scaffolding — the randomized org id is the same
+   defect behind the orange_dot approval 503 — so it is not purely additive and
+   wants its own review.
+
+## 14. Open questions
 
 1. **Does a standard GitHub runner hold the stack?** J2's eight containers are
    comfortable; the full fourteen on 16GB is unproven. Settled empirically at
@@ -586,5 +632,6 @@ and a second network must cost **no test code**.
    adjacent, but a separate decision with its own CI-time cost.
 4. **When does the contract layer land?** It is a few days' work in the four
    service repositories and retires a recurring production failure class
-   (signals-dpg #103, #104, #112, #115, #122; aggregator-dpg #399). Out of this
-   spec, but it should not stay unscheduled.
+   (signals-dpg #103, #104, #112, #115, #122, tracked in #124; aggregator-dpg
+   #399). Epic #1 recommends it first and this spec starts elsewhere (§13), so
+   it is now unscheduled rather than merely later. It should not stay that way.
