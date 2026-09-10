@@ -1,0 +1,90 @@
+name: journey
+
+# The journey suite runs on a release-candidate tag, against the exact
+# images that tag published. It cannot be a branch-protection check: a tag
+# only exists after merge, so "an RC is not promotable until green" stays a
+# procedural gate in the promotion checklist.
+on:
+  push:
+    tags: ['20*-s*-rc*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify
+        required: true
+      target:
+        description: Single target, e.g. purple_dot or blue_dot/ka-dhwd
+        required: false
+
+jobs:
+  journey:
+    runs-on: ubuntu-latest
+    strategy:
+      # One target per job, never in parallel within a job: a run boots one
+      # stack because that is what a deployment looks like. fail-fast off so
+      # one target's failure still leaves the others' evidence.
+      fail-fast: false
+      matrix:
+        target: [purple_dot, blue_dot/ka-dhwd]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same reason as ci.yml: the workflow reaches main before the harness.
+      - id: harness
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The journey harness is not on this ref yet. Merge the harness before running the journey suite."
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The stack overlays signals-dpg's local-setup and reads realm and
+      # theme sources from aggregator-dpg, so both checkouts are required.
+      - uses: actions/checkout@v4
+        with:
+          repository: Blue-Dots-Economy/signals-dpg
+          ref: ${{ github.ref_name }}
+          path: .checkouts/Signals-DPG
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Blue-Dots-Economy/aggregator-dpg
+          ref: develop
+          path: .checkouts/aggregator-dpg
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Blue-Dots-Economy/bluedots-schemas
+          ref: main
+          path: .checkouts/bluedots-schemas
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: log in to ghcr
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: run the journey suite
+        env:
+          SIGNALS_DPG_PATH: ${{ github.workspace }}/.checkouts/Signals-DPG
+          AGGREGATOR_DPG_PATH: ${{ github.workspace }}/.checkouts/aggregator-dpg
+          BLUEDOTS_SCHEMAS_PATH: ${{ github.workspace }}/.checkouts/bluedots-schemas
+          JOURNEY_TARGET: ${{ matrix.target }}
+          JOURNEY_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: pnpm test:stack
+
+      # Always, not on success: a gate that explains nothing when red is a
+      # gate that gets disabled.
+      - name: reports and triage bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-${{ strategy.job-index }}
+          path: reports/
+          if-no-files-found: ignore

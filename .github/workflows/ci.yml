@@ -1,0 +1,51 @@
+name: ci
+
+# Per-PR check for this repository. Deliberately image-free: it must stay
+# fast enough that nobody is tempted to skip it. The journey suite, which
+# boots real service images, runs on release-candidate tags instead.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The workflows land on main ahead of the harness itself, so this
+      # must be a no-op on a main that has no package.json yet rather than
+      # a red default branch nobody caused.
+      - id: harness
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json on this ref yet — the harness has not landed. Skipping."
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.harness.outputs.present == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.harness.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.harness.outputs.present == 'true'
+
+      - name: typecheck
+        if: steps.harness.outputs.present == 'true'
+        # This is also the contract check: the generated clients are built
+        # from each provider's committed openapi.json, so a provider removing
+        # a response field the journeys use fails here.
+        run: pnpm typecheck
+
+      - name: unit tests and harness selftest
+        if: steps.harness.outputs.present == 'true'
+        # Includes the canaries -- one built to pass, one built to fail --
+        # so a runner that reports green regardless is caught here rather
+        # than by a journey suite that looks healthy.
+        run: pnpm test
