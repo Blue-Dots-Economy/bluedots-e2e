@@ -1,0 +1,33 @@
+name: ci
+
+# Per-PR check for this repository. Deliberately image-free: it must stay
+# fast enough that nobody is tempted to skip it. The journey suite, which
+# boots real service images, runs on release-candidate tags instead.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        # This is also the contract check: the generated clients are built
+        # from each provider's committed openapi.json, so a provider removing
+        # a response field the journeys use fails here.
+        run: pnpm typecheck
+
+      - name: unit tests and harness selftest
+        # Includes the canaries -- one built to pass, one built to fail --
+        # so a runner that reports green regardless is caught here rather
+        # than by a journey suite that looks healthy.
+        run: pnpm test
