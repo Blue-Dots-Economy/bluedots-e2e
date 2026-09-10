@@ -70,6 +70,10 @@ describe('J2 — a new profile becomes findable in search', () => {
       baseFile: join(signalsDpg, 'local-setup', 'docker-compose.yml'),
       runDir: await mkdtemp(join(tmpdir(), 'journey-')),
       aggregatorRoot: aggregator,
+      // Real TEI by default -- a standard runner was shown to hold it, and
+      // its vectors are the ones production computes. EMBEDDER=stub trades
+      // that for a much smaller, faster boot.
+      embedder: process.env.EMBEDDER === 'stub' ? 'stub' : 'tei',
     });
 
     const env = await provider.up();

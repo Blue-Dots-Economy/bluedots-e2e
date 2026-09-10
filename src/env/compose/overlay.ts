@@ -22,12 +22,21 @@ export function renderOverlay(opts: {
   aggregatorRoot?: string;
   /** Directory holding the prepared realm export (see prepareRealm). */
   realmDir?: string;
+  /** Directory holding the stub embedder source, when embedder is 'stub'. */
+  stubDir?: string;
   /**
    * Extra env for the search services. Exists for the negative controls,
    * which need to break ingestion deliberately -- e.g. pointing the worker
    * at a decoy consumer group so the sweep is the only path left.
    */
   searchOverrides?: Record<string, string>;
+  /**
+   * `tei` (default) runs the real embedder, whose vectors are the ones
+   * production computes. `stub` swaps in a deterministic stand-in that
+   * removes a multi-GB pull and a CPU-bound warmup, at the cost of ranking
+   * quality corresponding to nothing deployed.
+   */
+  embedder?: 'tei' | 'stub';
 }): string {
   const { target, digests, timing, aggregatorRoot, realmDir } = opts;
 
@@ -125,7 +134,26 @@ ${ephemeral(8080)}${
       : ''
   }
 
-  mailpit:
+${
+    opts.embedder === 'stub'
+      ? `  # Overridden in place, keeping the service name: EMBEDDING_BASE_URL
+  # points at http://tei-embeddings:80/v1, so nothing downstream needs to
+  # know which embedder is running. Runs from the signals-search image,
+  # which this stack already pulls, so choosing the stub adds no image.
+  tei-embeddings:
+${unnamed}
+    image: ghcr.io/blue-dots-economy/signals-search@${digests['signals-search']}
+    platform: !reset null
+    entrypoint: !override ["node"]
+    command: !override ["/stub/embedder.js"]
+    environment:
+      EMBEDDING_DIM: "1024"
+    volumes: !override
+      - ${opts.stubDir ?? '/stub'}:/stub:ro
+
+`
+      : ''
+  }  mailpit:
 ${unnamed}
 ${ephemeral(8025)}
     # The base healthcheck uses /dev/tcp/127.0.0.1/8025, a bash builtin. The

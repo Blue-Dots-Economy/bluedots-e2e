@@ -249,3 +249,34 @@ describe('search env key uniqueness', () => {
     expect(block).toContain('SWEEP_INTERVAL_MS: "2000"');
   });
 });
+
+describe('embedder selection', () => {
+  test('uses real TEI by default', () => {
+    // A 2 vCPU / 8 GB runner was shown to hold it, and its vectors are the
+    // ones production computes -- model_version feeds the ingest content
+    // hash, so a substitute corresponds to nothing deployed.
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).not.toContain('stub-embedder');
+  });
+
+  test('swaps in the stub when asked, reusing an image already pulled', () => {
+    // The stub runs from the signals-search image, so choosing it removes
+    // the multi-GB TEI pull without adding a build.
+    const yaml = renderOverlay({ ...OPTS, embedder: 'stub' });
+
+    expect(yaml).toContain('tei-embeddings:');
+    expect(yaml).toContain('signals-search@sha256:b');
+    expect(yaml).toContain('/stub/embedder.js');
+  });
+
+  test('keeps the service name, so nothing downstream has to know', () => {
+    // EMBEDDING_BASE_URL points at http://tei-embeddings:80/v1; overriding
+    // the service in place means the search config is untouched.
+    const yaml = renderOverlay({ ...OPTS, embedder: 'stub' });
+
+    // The KEY, not the string: the comment above the service explains why
+    // the name is preserved and would otherwise match its own explanation.
+    expect(yaml).not.toMatch(/^\s*EMBEDDING_BASE_URL:/m);
+  });
+});

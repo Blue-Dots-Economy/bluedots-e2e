@@ -81,6 +81,10 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
       baseFile: join(signalsDpg, 'local-setup', 'docker-compose.yml'),
       runDir: await mkdtemp(join(tmpdir(), 'journey-control-')),
       aggregatorRoot: aggregator,
+      // Real TEI by default -- a standard runner was shown to hold it, and
+      // its vectors are the ones production computes. EMBEDDER=stub trades
+      // that for a much smaller, faster boot.
+      embedder: process.env.EMBEDDER === 'stub' ? 'stub' : 'tei',
       searchOverrides: {
         // Consume a group nobody is watching: the stream path is dead as
         // far as the awaiter is concerned.

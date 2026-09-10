@@ -9,6 +9,7 @@ import { assertSchemaReady } from '../schema_gate.js';
 import { enableDirectGrant, type KeycloakAdmin } from '../keycloak_setup.js';
 import { createKcadmAdmin } from '../kcadm.js';
 import { prepareRealm } from '../realm_prepare.js';
+import { STUB_EMBEDDER_SOURCE } from '../../fixtures/stub_embedder.js';
 
 export type ComposeDeps = {
   run: (args: string[]) => Promise<string>;
@@ -23,6 +24,8 @@ export type ComposeDeps = {
   readRealm?: (path: string) => Promise<string>;
   /** Deliberate breakage for the negative controls. */
   searchOverrides?: Record<string, string>;
+  /** 'tei' (default) or 'stub'; see renderOverlay. */
+  embedder?: 'tei' | 'stub';
   /** Injected so the realm mutation is testable without a live Keycloak. */
   createAdmin?: (
     exec: (service: string, cmd: readonly string[]) => Promise<string>,
@@ -93,6 +96,12 @@ export class ComposeProvider implements EnvironmentProvider {
       );
     }
 
+    let stubDir: string | undefined;
+    if (this.deps.embedder === 'stub') {
+      stubDir = join(this.deps.runDir, 'stub');
+      await this.deps.writeFile(join(stubDir, 'embedder.js'), STUB_EMBEDDER_SOURCE);
+    }
+
     await this.deps.writeFile(this.envFile, renderEnvFile(env));
     await this.deps.writeFile(
       this.overlayFile,
@@ -103,6 +112,8 @@ export class ComposeProvider implements EnvironmentProvider {
         aggregatorRoot: this.deps.aggregatorRoot,
         realmDir,
         searchOverrides: this.deps.searchOverrides,
+        embedder: this.deps.embedder,
+        stubDir,
       }),
     );
 
