@@ -35,6 +35,20 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      # BLUEDOTS_CI_TOKEN is required and cannot be GITHUB_TOKEN: that is
+      # scoped to this repository only, so it cannot clone the private
+      # service repos below, nor pull their packages from ghcr (the images
+      # are private and linked to those repos, not this one). Needs `repo`
+      # and `read:packages`.
+      - name: check the cross-repo token exists
+        env:
+          TOKEN: ${{ secrets.BLUEDOTS_CI_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::BLUEDOTS_CI_TOKEN is not set. The journey suite needs a token with repo + read:packages to check out signals-dpg, aggregator-dpg and bluedots-schemas and to pull their private images. GITHUB_TOKEN cannot do this: it is scoped to this repository."
+            exit 1
+          fi
+
       # The stack overlays signals-dpg's local-setup and reads realm and
       # theme sources from aggregator-dpg, so both checkouts are required.
       - uses: actions/checkout@v4
@@ -42,22 +56,22 @@ jobs:
           repository: Blue-Dots-Economy/signals-dpg
           ref: ${{ github.ref_name }}
           path: .checkouts/Signals-DPG
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.BLUEDOTS_CI_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Blue-Dots-Economy/aggregator-dpg
           ref: develop
           path: .checkouts/aggregator-dpg
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.BLUEDOTS_CI_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Blue-Dots-Economy/bluedots-schemas
           ref: main
           path: .checkouts/bluedots-schemas
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.BLUEDOTS_CI_TOKEN }}
 
       - name: log in to ghcr
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        run: echo "${{ secrets.BLUEDOTS_CI_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: run the journey suite
         env:
