@@ -27,6 +27,9 @@ const STUB_ADMIN = async () => ({
     { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: true },
   ],
   updateClient: async () => {},
+  createUser: async () => 'user-uuid',
+  setPassword: async () => {},
+  addRealmRole: async () => {},
 });
 
 const DEPS = (run: (a: string[]) => Promise<string>) => ({
@@ -116,10 +119,10 @@ describe('ComposeProvider realm mutation', () => {
     const ctx = await new ComposeProvider(TARGET, {
       ...DEPS(run),
       createAdmin: async () => ({
+        ...(await STUB_ADMIN()),
         getClients: async () => [
           { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: false },
         ],
-        updateClient: async () => {},
       }),
     }).up();
 
@@ -132,12 +135,7 @@ describe('ComposeProvider realm mutation', () => {
     const { run } = fakeDocker();
     const ctx = await new ComposeProvider(TARGET, {
       ...DEPS(run),
-      createAdmin: async () => ({
-        getClients: async () => [
-          { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: true },
-        ],
-        updateClient: async () => {},
-      }),
+      createAdmin: STUB_ADMIN,
     }).up();
 
     expect(ctx.realmMutations).toEqual([]);
@@ -177,5 +175,28 @@ describe('ComposeProvider schema gate', () => {
     expect(psql).toContain('exec');
     expect(psql).toContain('postgres');
     expect(psql).not.toContain('signals-postgres');
+  });
+});
+
+describe('ComposeProvider.runTool', () => {
+  test('runs a one-off container from the bootstrap service', async () => {
+    // seed_service_users.ts is TypeScript and needs tsx, which the published
+    // api image is pruned of. Only the tools image can run it.
+    const calls: string[][] = [];
+    const run = async (args: string[]) => {
+      calls.push(args);
+      if (args.includes('port')) return '0.0.0.0:55001\n';
+      if (args.includes('psql')) return 'relation\n';
+      return '';
+    };
+    const p = new ComposeProvider(TARGET, DEPS(run));
+
+    await p.runTool(['pnpm', '--filter', 'api', 'db:seed:services']);
+
+    const call = calls.find((c) => c.includes('db:seed:services'))!;
+    expect(call).toContain('run');
+    // --rm so a one-off does not linger and collide with the next run.
+    expect(call).toContain('--rm');
+    expect(call).toContain('signals-bootstrap');
   });
 });

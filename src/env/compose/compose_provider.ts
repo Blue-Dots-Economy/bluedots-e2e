@@ -166,6 +166,20 @@ export class ComposeProvider implements EnvironmentProvider {
     return this.deps.run(this.args(['exec', '-T', service, ...command]));
   }
 
+  /**
+   * Run a one-off command in the tools image.
+   *
+   * The published api image is pruned to prod-only dependencies and has
+   * neither tsx nor drizzle-kit, so the seed and migration scripts can only
+   * run in the bootstrap image. `run --rm` gives a fresh container that does
+   * not linger to collide with the next run.
+   */
+  async runTool(command: readonly string[]): Promise<string> {
+    return this.deps.run(
+      this.args(['run', '--rm', '--no-deps', 'signals-bootstrap', ...command]),
+    );
+  }
+
   async down(): Promise<void> {
     // -v removes volumes. A surviving volume carries the previous run's realm
     // and database, which is how a hermetic suite quietly stops being one.

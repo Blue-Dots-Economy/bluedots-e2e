@@ -49,3 +49,44 @@ describe('createKcadmAdmin', () => {
     expect(update).toContain('directAccessGrantsEnabled=true');
   });
 });
+
+describe('createKcadmAdmin user operations', () => {
+  test('creates a user and returns the id kcadm prints', async () => {
+    const exec = async (_s: string, cmd: readonly string[]) =>
+      cmd.includes('users') ? 'user-uuid-123\n' : '';
+    const admin = await createKcadmAdmin(exec, { username: 'a', password: 'b' });
+
+    expect(await admin.createUser('bluedots', { username: 'j2' })).toBe('user-uuid-123');
+  });
+
+  test('asks kcadm for just the id, not a success sentence', async () => {
+    const calls: string[][] = [];
+    const exec = async (_s: string, cmd: readonly string[]) => {
+      calls.push([...cmd]);
+      return 'id\n';
+    };
+    const admin = await createKcadmAdmin(exec, { username: 'a', password: 'b' });
+
+    await admin.createUser('bluedots', { username: 'j2' });
+
+    expect(calls.at(-1)).toContain('-i');
+  });
+
+  test('assigns a realm role by name', async () => {
+    const calls: string[][] = [];
+    const exec = async (_s: string, cmd: readonly string[]) => {
+      calls.push([...cmd]);
+      return '';
+    };
+    const admin = await createKcadmAdmin(exec, { username: 'a', password: 'b' });
+
+    await admin.addRealmRole('bluedots', 'user-uuid', 'signals_participant');
+
+    expect(calls.at(-1)).toContain('--rolename');
+    expect(calls.at(-1)).toContain('signals_participant');
+    // --uid takes an id; --uusername takes a username and fails with
+    // "User not found for username: <uuid>" when given one.
+    expect(calls.at(-1)).toContain('--uid');
+    expect(calls.at(-1)).not.toContain('--uusername');
+  });
+});

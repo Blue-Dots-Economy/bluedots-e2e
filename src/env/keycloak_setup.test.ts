@@ -9,6 +9,9 @@ function fakeAdmin(clients: ClientRep[]) {
     updateClient: async (_realm, id, changes) => {
       updates.push({ id, changes });
     },
+    createUser: async () => 'user-uuid',
+    setPassword: async () => {},
+    addRealmRole: async () => {},
   };
   return { updates, admin };
 }

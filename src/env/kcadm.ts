@@ -36,6 +36,35 @@ export async function createKcadmAdmin(
       return JSON.parse(out || '[]') as ClientRep[];
     },
 
+    async createUser(realm, user) {
+      // kcadm prints "Created new user with id 'uuid'" on stderr-ish output;
+      // `-i` makes it print just the id, which is what we need.
+      const out = await exec('keycloak', [
+        KCADM, 'create', 'users', '-r', realm,
+        '-s', `username=${user.username}`,
+        '-s', 'enabled=true',
+        ...(user.email ? ['-s', `email=${user.email}`, '-s', 'emailVerified=true'] : []),
+        '-i',
+      ]);
+      return out.trim();
+    },
+
+    async setPassword(realm, userId, password) {
+      await exec('keycloak', [
+        KCADM, 'set-password', '-r', realm,
+        '--userid', userId, '--new-password', password,
+      ]);
+    },
+
+    async addRealmRole(realm, userId, role) {
+      // --uid takes the user id; --uusername takes a username, and passing
+      // an id to it fails with "User not found for username: <uuid>".
+      await exec('keycloak', [
+        KCADM, 'add-roles', '-r', realm,
+        '--uid', userId, '--rolename', role,
+      ]);
+    },
+
     async updateClient(realm, id, changes) {
       // -s sets fields directly. kcadm can read a JSON body from stdin, but
       // wiring stdin through `docker compose exec -T` is needless complexity

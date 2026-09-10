@@ -11,6 +11,9 @@ import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.j
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
+import { seedIdentities, type SeedResult } from '../../src/seed/seed.js';
+import { createKcadmAdmin } from '../../src/env/kcadm.js';
+import { obtainUserToken } from '../../src/seed/token.js';
 
 
 /**
@@ -32,6 +35,7 @@ const aggregator =
 describe('compose provider boots a usable stack', () => {
   let provider: ComposeProvider;
   let ctx: EnvironmentContext;
+  let seeded: SeedResult;
 
   beforeAll(async () => {
     const target = await resolveTarget(schemas, 'purple_dot', null);
@@ -59,6 +63,24 @@ describe('compose provider boots a usable stack', () => {
       });
 
     ctx = await provider.up();
+
+    // Phase 3, against the real stack.
+    const admin = await createKcadmAdmin((svc, cmd) => provider.exec(svc, cmd), {
+      username: 'admin',
+      password: 'admin',
+    });
+    seeded = await seedIdentities(
+      { realm: 'bluedots' },
+      {
+        runTool: (cmd) => provider.runTool(cmd),
+        admin,
+        obtainToken: (user) =>
+          obtainUserToken(
+            { baseUrl: ctx.endpoints.keycloak, realm: 'bluedots', clientId: 'signals-ui' },
+            user,
+          ),
+      },
+    );
   });
 
   afterAll(async () => {
@@ -151,6 +173,35 @@ describe('compose provider boots a usable stack', () => {
 
     expect(client!.directAccessGrantsEnabled).toBe(true);
     expect(ctx.realmMutations).toContain('enabled directAccessGrants on signals-ui');
+  });
+
+  test('captures an api key search actually accepts', async () => {
+    // signals-search authenticates by x-api-key hashed against the apikey
+    // table -- not Keycloak. A 401 here means the captured key never
+    // reached the database, which no amount of Keycloak setup would fix.
+    const res = await fetch(`${ctx.endpoints.searchApi}/v1/search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': seeded.apiKey },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).not.toBe(401);
+  });
+
+  test('the participant token is accepted by signals-dpg', async () => {
+    // Proves direct grant, the realm role, and the issuer split all line up.
+    const res = await fetch(`${ctx.endpoints.signalsApi}/api/v1/auth/config`, {
+      headers: { authorization: `Bearer ${seeded.participant.token}` },
+    });
+
+    expect(res.status).toBeLessThan(500);
+    expect(seeded.participant.token.split('.')).toHaveLength(3);
+  });
+
+  test('an aggregator org exists for profiles to be owned by', () => {
+    // Without one, a self-created profile is classified unowned and lands in
+    // draft, and search only returns live items.
+    expect(seeded.aggregatorOrgId).toMatch(/^org_/);
   });
 
   test('reports the capabilities a journey checks against', () => {

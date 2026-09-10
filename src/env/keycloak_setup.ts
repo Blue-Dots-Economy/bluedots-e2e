@@ -19,6 +19,13 @@ export type KeycloakAdmin = {
     id: string,
     changes: Record<string, string | boolean>,
   ) => Promise<void>;
+  /** Create an enabled user and return its id. */
+  createUser: (
+    realm: string,
+    user: { username: string; email?: string },
+  ) => Promise<string>;
+  setPassword: (realm: string, userId: string, password: string) => Promise<void>;
+  addRealmRole: (realm: string, userId: string, role: string) => Promise<void>;
 };
 
 /**
