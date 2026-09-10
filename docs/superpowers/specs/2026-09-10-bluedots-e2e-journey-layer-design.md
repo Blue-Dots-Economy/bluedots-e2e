@@ -40,16 +40,18 @@ Docker Compose stack, Keycloak-minted identities, the step framework, three
 report tiers, the harness's own self-verification, and CI bound to a
 release-candidate tag.
 
-One journey ships with it — **J2, item → event → search hit** — on **both
-`purple_dot` and `blue_dot`**. The compose file defines the whole stack;
+One journey ships with it — **J2, item → event → search hit** — on two
+targets: **`purple_dot`** and **`blue_dot/ka-dhwd`**. The compose file defines the whole stack;
 profiles boot only what a journey needs.
 
-Running two networks on the first journey is deliberate. The design's central
-claim is that a network is a matrix parameter rather than a copy, and a
-single-network run asserts that claim without testing it. Blue is also the
-network worth having: it declares **31** vectorize-marked fields against
-purple's **9**, so it is far more exposed to ingestion regressions than the
-network the runbook happens to cover.
+Running two targets on the first journey is deliberate. The design's central
+claim is that a target is a matrix parameter rather than a copy, and a
+single-target run asserts that claim without testing it. `blue_dot/ka-dhwd` is
+also the target worth having: it is a real deployed instance, it carries a
+third domain and extra actions the dot-level config does not (§4), and blue
+declares **31** vectorize-marked fields against purple's **9** — far more
+exposed to ingestion regressions than the network the runbook happens to
+cover.
 
 ### Out
 
@@ -277,15 +279,27 @@ One command. CI and a laptop differ only in flags; a suite whose only working
 path is the CI path is a suite nobody reproduces.
 
 ```
-pnpm journey                                   # all journeys, images :develop
-pnpm journey --branch feat/x                   # all four services on that branch tag
-pnpm journey --branch signals-dpg=feat/x       # one service moved, rest on develop
-pnpm journey --images-from-tag 202608-s2-rc1   # what CI runs
-pnpm journey --journey J2                      # one scenario, all its networks
-pnpm journey --network purple_dot              # one network, all its scenarios
-pnpm journey --list                            # print the matrix, boot nothing
-pnpm journey --keep-stack                      # leave containers up to debug
+pnpm journey --dot blue_dot --instance ka-dhwd   # a deployed instance
+pnpm journey --dot purple_dot                    # a dot with no instances
+pnpm journey --dot blue_dot/ka-dhwd,purple_dot   # two targets, two stacks
+pnpm journey --images-from-tag 202608-s2-rc1     # what CI runs
+pnpm journey --branch feat/x                     # all four services on that branch tag
+pnpm journey --branch signals-dpg=feat/x         # one service moved, rest on develop
+pnpm journey --journey J2                        # one scenario, all its targets
+pnpm journey --list                              # print the matrix, boot nothing
+pnpm journey --keep-stack                        # leave containers up to debug
 ```
+
+### Choosing what to run against
+
+Two things must be chosen before a run: **which images** and **which target**.
+A target is a `(dot, instance)` pair — `blue_dot/ka-dhwd`, `purple_dot` — and
+it decides which schema the stack is configured with.
+
+When either is omitted on a terminal, the CLI prompts: the release tags or
+branches to resolve, then the dot and instance to test, listing what the pinned
+`bluedots-schemas` checkout actually offers. In CI both are flags and a missing
+one is an error, never a prompt and never a guess.
 
 Local runs default to `:develop`, which `ci.yaml` publishes only after its
 checks pass, so the default is never a red build. `--branch` accepts a bare
@@ -339,28 +353,78 @@ generated `.env`. What the overlay changes:
 | `PEL_MIN_IDLE_MS` lowered | Default 60_000 puts DLQ escalation ~4 min out (§7). |
 | `RERANK_DEFAULT=false`, TEI kept | Already the reference default; see the embedder note below. |
 
-### Two networks in one stack
+### One stack per target, because that is what deploys
 
-signals-search's `NETWORK_CONFIG_PATH` accepts a **directory**:
-`config/network_registry.ts:26-33` reads every `*.json` in it and keys them by
-`config.id`. signals-dpg takes `NETWORK_CONFIG_URLS` (plural). So the harness
-mounts a directory holding `purple_dot/network.json` and `blue_dot/network.json`
-for search, and points signals-dpg's URLs at the schema-server over the same
-pinned checkout. One stack, both networks.
+An earlier revision put both networks in one stack, using signals-dpg's
+`NETWORK_CONFIG_URLS` and a directory mount for signals-search. That code path
+is real, but **nothing deploys it**.
+`bluedots-automation/helm/signals/values.yaml:185-200`:
 
-The duplicate-`id` caveat in the reference compose applies: directory mode takes
-the last file for a repeated id. The harness asserts the ids are distinct at
-T3 rather than discovering a silently shadowed config later.
+```yaml
+SERVED_DOMAINS: "purple_dot/seeker,purple_dot/provider"
+NETWORK_CONFIG_SOURCE: local
+SCHEMA_REGISTRY_URL: ""
+```
 
-### Which schema checkout
+and `packages/config/src/network_config_loader.ts:29-32` makes `local` strictly
+single-config:
 
-There are two purple_dot configs in play — `bluedots-schemas/purple_dot/` and
-`Signals-DPG/examples/schemas/purple_dot/` — and they **have already drifted**
-(`plural_label`, `instance_name`). The harness pins `bluedots-schemas` by commit
-SHA and feeds both consumers from it, because that repository is the one the
-deployed instances are configured against. This means the local stack no longer
-matches `examples/schemas`, which is a real divergence and belongs in §14 rather
-than being hidden by picking whichever is convenient.
+```ts
+const contents = await readFile(localFile, 'utf8');
+baseConfigs = [parseNetworkConfigDocument(JSON.parse(contents))];
+```
+
+One network per instance, from one local file. A harness running
+`source=remote` with two configs would be the only place in the fleet doing so,
+which is testing a configuration that ships nowhere.
+
+So: **one compose project per target**, each configured exactly as a deployed
+instance is — `NETWORK_CONFIG_SOURCE=local`, one `network.json`,
+`SERVED_DOMAINS` naming only that config's domains. Sequential by default,
+parallel behind a flag, because §14.1 has not established that one runner holds
+even a single stack with real TEI.
+
+This also removes a rule the earlier revision needed: with a shared consumer
+group, two networks ingesting concurrently would each see the other's backlog
+and neither could tell drained from busy. Separate stacks, separate Redis,
+separate group. The rule and its justification both go away.
+
+### A target is a (dot, instance) pair
+
+The unit is not a network. `bluedots-schemas` nests deployed instances under a
+dot, and the instance config is not cosmetic:
+
+| Config | Domains | Differs from dot-level in |
+|---|---|---|
+| `blue_dot/network.json` | seeker, provider | — |
+| `blue_dot/ka-dhwd/network.json` | seeker, provider, **service_provider** | `actions`, `domains`, `instances` |
+| `blue_dot/up-gzb/network.json` | seeker, provider, service_provider | identical to ka-dhwd |
+| `purple_dot/network.json` | (no instance dirs) | — |
+
+An instance adds a domain and extra actions, so it carries a different
+interaction matrix. Running `blue_dot` at dot level would test a config no
+deployment uses — the same error as the multi-network stack, one level down.
+
+Resolution is mechanical, from the pinned checkout:
+
+```
+<dot>/<instance>/network.json   when an instance is given
+<dot>/network.json              otherwise
+<dot>/<instance>/consent.json   falling back to <dot>/consent.json
+<dot>/<instance>/brand.json     falling back to <dot>/brand.json   (only upsdm has its own)
+```
+
+`SERVED_DOMAINS` is **derived** from the resolved config's `domains`, not
+written by hand — for `ka-dhwd` that is three bindings, not two. Deriving it is
+what keeps adding a target free of test code.
+
+Note that `ka-dhwd` and `up-gzb` have equivalent `network.json`, so choosing
+between them exercises brand and consent, not the network contract. Worth
+knowing before someone adds both to the matrix expecting different coverage.
+
+The proving run uses two targets: **`purple_dot`** and **`blue_dot/ka-dhwd`**.
+Purple is what the runbook covers; ka-dhwd is a real deployed instance with the
+larger domain set and 31 vectorize-marked fields against purple's 9.
 
 ### The embedder: real TEI, not a stub
 
@@ -604,7 +668,7 @@ defineJourney({
   id:         'J2',
   title:      'A new profile becomes findable in search',
   capability: 'search-and-discovery',
-  networks:   ['purple_dot', 'blue_dot'],
+  targets:    ['purple_dot', 'blue_dot/ka-dhwd'],
 
   steps: [
     createProfile({ as: 'seeker' }),      // live, not draft — see §5.5
@@ -677,10 +741,13 @@ changing `SWEEP_INTERVAL_MS` or `PEL_MIN_IDLE_MS` moves them together.
 
 ### Scheduling
 
-Scenarios parallelize **by network** and serialize **within** one. Both networks
-share the single `signals-search` consumer group, so concurrent ingestion would
-leave each run reading the other's backlog, unable to tell drained from busy.
-Per-network serialization keeps each baseline meaningful.
+Each target gets its own stack (§4), so each has its own Redis and its own
+`signals-search` consumer group. Targets are therefore independent, and the
+run order is a resource decision rather than a correctness one: sequential by
+default so peak container count stays at one stack, parallel behind a flag.
+
+Within a target, scenarios serialize. They share one consumer group, and the
+awaiter's baseline is only meaningful if nothing else is publishing.
 
 ### Result-set assertions, not rank
 
@@ -830,9 +897,9 @@ auth prerequisites, and an empirical runner question.
 
 | # | Ticket | Proves | Depends on |
 |---|---|---|---|
-| T1 | Repo scaffold: pnpm, vitest, `pnpm journey` CLI, `--list` | Entry point works with zero containers | — |
+| T1 | Repo scaffold: pnpm, vitest, `pnpm journey` CLI, `--list`, `(dot, instance)` resolution and prompting | Entry point works with zero containers; `--list` shows real targets from the pinned checkout | — |
 | T2 | Resolve phase: branch/tag → digests, per-service override, source-SHA pinning for built images | Mutable tags are pinned (§4) | T1 |
-| T3 | Compose overlay on `local-setup/docker-compose.yml`; two-network directory; deadline-shaping env | The stack boots, both networks | T2 |
+| T3 | Compose overlay on `local-setup/docker-compose.yml`; one project per target; deadline-shaping env | A stack boots for a given `(dot, instance)` | T2 |
 | T4 | Tools image + `signals-bootstrap` gating | `item_search` exists; a real completion signal | T3 |
 | T5 | Realm import via aggregator's render script, `apply-user-profile.sh`, direct-grant enablement | Keycloak works at all (§2.5) | T4 |
 | T6 | Identities: realm role, aggregator org, API key via `seed_service_users.ts` | J2's caller can authenticate | T5, **epic P0** |
@@ -841,7 +908,7 @@ auth prerequisites, and an empirical runner question.
 | T9 | Correlating awaiter (`XRANGE` id → group position → `item_search.indexed_at`) | Ingestion is actually verified (§7) | T8, T4 |
 | T10 | Canary scenarios + `harness-selftest` as a per-PR check | The runner reports honestly | T8 |
 | T11 | Negative controls, including sweep-alive/consumer-dead | The gate cannot go vacuously green | T9, T4 |
-| T12 | J2 on purple_dot and blue_dot | One real journey passes, two networks | T6, T11 |
+| T12 | J2 on `purple_dot` and `blue_dot/ka-dhwd` | One real journey passes on two targets | T6, T11 |
 | T13 | Report renderers: `summary.json` → tiers 1/2/3 + triage bundle | Legible evidence | T9 |
 | T14 | CI workflow on RC tag | Bound to the release | T12, T13 |
 
@@ -866,8 +933,10 @@ revision:
 
 The parent design's cost-of-change table is the acceptance criterion for T8 and
 T9 together: a second journey from existing steps must cost **no TypeScript**,
-and blue_dot must cost **no test code** — which T12 tests directly by running
-both networks.
+and `blue_dot/ka-dhwd` must cost **no test code** — which T12 tests directly by
+running two targets. `SERVED_DOMAINS` being derived from the resolved config
+rather than hand-written (§4) is the part of that claim most likely to break
+first.
 
 ## 13. Relationship to epic #1
 
@@ -877,7 +946,7 @@ the deviation is recorded here rather than left for someone to trip over.
 
 | | Epic #1 | This spec | Why |
 |---|---|---|---|
-| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.7 keeps that visible. |
+| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.8 keeps that visible. |
 | First scenario | P2, onboarding → dashboard | J2, item → event → search hit | J2 exercises the asynchronous spine, which is where flake lives. A flaky suite gets disabled, so that risk is worth retiring first. |
 | Networks | purple + blue | purple + blue | Unchanged from the epic. |
 
@@ -898,11 +967,14 @@ is optional:
 
 ## 14. Open questions
 
-1. **Does a standard GitHub runner hold the stack?** J2 boots ~11 containers,
-   and real TEI alone wants 3-8 GB (§4). The parent design assumed a stub
-   precisely to avoid this. Settled empirically at T3; if the runner cannot
-   hold TEI, the fallback is a stub embedder and §4's argument for real vectors
-   loses. *(provisional)*
+1. **Does a standard GitHub runner hold one stack?** A target boots ~11
+   containers and real TEI alone wants 3-8 GB (§4). The parent design assumed
+   a stub precisely to avoid this. Per-target stacks make this a question about
+   one stack rather than the whole matrix, which helps; running targets in
+   parallel makes it worse and stays opt-in until this is answered. Settled
+   empirically at T3; if the runner cannot hold TEI, the fallback is a stub
+   embedder and §4's argument for production-identical vectors loses.
+   *(provisional)*
 2. **`bluedots-schemas` versus `examples/schemas`.** The two purple_dot configs
    have already drifted (§4). The harness pins `bluedots-schemas`, so the local
    stack no longer matches what signals-dpg's own compose serves. Which is
@@ -921,10 +993,17 @@ is optional:
    emulation (§4). `SIGNALS_SEARCH_IMAGE` + `SEARCH_PLATFORM` allow a native
    build, but nothing produces one in CI. A suite that is slow for whoever is
    debugging it gets run only in CI, then ignored there.
-6. **Should signals-dpg's integration suites leave the `sonar` job?** They run
+6. **What do `consent.json` and `brand.json` do to a journey?** The harness
+   resolves both per target (§4), but J2 asserts on neither. Consent is
+   load-bearing — §5.5 needs it for the item to reach `live` — so the consent
+   document a target ships is already in the blast radius even though no
+   assertion reads it. `ka-dhwd` and `up-gzb` differ *only* in brand and
+   consent, so a journey that covers them is the one that would justify running
+   both.
+7. **Should signals-dpg's integration suites leave the `sonar` job?** They run
    under `continue-on-error` today, so regressions are advisory. Cheap and
    adjacent, but a separate decision with its own CI-time cost.
-7. **When does the contract layer land?** A few days' work across the four
+8. **When does the contract layer land?** A few days' work across the four
    service repositories, retiring a recurring production failure class
    (signals-dpg #103, #104, #112, #115, #122, tracked in #124; aggregator-dpg
    #399). Epic #1 recommends it first and this spec starts elsewhere (§13), so
