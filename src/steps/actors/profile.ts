@@ -30,7 +30,7 @@ export const createProfile = (spec: { as: string }) =>
       const itemState = {
         ...buildItemState(
           target.itemSchema as never,
-          String(state.seed ?? Date.now()),
+          requireState(state, 'seed'),
         ),
         // Keep the item's own age consistent with the one consent is
         // recorded against, and adult either way: the schema permits a

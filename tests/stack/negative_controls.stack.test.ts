@@ -15,6 +15,7 @@ import { seedIdentities } from '../../src/seed/seed.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { runJourney, type StepContext } from '../../src/journey/journey.js';
+import { seedFromEnv } from '../../src/targets/from_env.js';
 import { J2 } from '../../journeys/search/j2.js';
 
 const schemas =
@@ -123,7 +124,7 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
       clients: {},
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
-      state: {},
+      state: { seed: seedFromEnv(process.env) },
       target: { network: networkConfig.id, domain: DOMAIN, itemType, itemSchema: domainSchemas[itemType] as never },
       probe,
       auth: {

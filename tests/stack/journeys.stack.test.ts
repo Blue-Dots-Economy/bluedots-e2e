@@ -7,7 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
-import { releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
+import { releaseTagFromEnv, seedFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
@@ -199,7 +199,9 @@ describe('journeys against a real stack', () => {
           return;
         }
 
-        const result = await runJourney(journey, { ...baseCtx, state: {} });
+        // Seeded per run and printed, so a red run can be replayed exactly.
+        const seed = seedFromEnv(process.env);
+        const result = await runJourney(journey, { ...baseCtx, state: { seed } });
 
         expect(result.ok, JSON.stringify(result.trace, null, 2)).toBe(true);
       });

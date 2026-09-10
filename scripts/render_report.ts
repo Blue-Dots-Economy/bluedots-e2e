@@ -9,6 +9,9 @@
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { renderHtml } from '../src/report/html.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
+import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
+import { renderJUnit } from '../src/report/junit.js';
+import { ALL_JOURNEYS } from '../journeys/index.js';
 
 const REPORTS = 'reports';
 
@@ -47,6 +50,41 @@ const report = {
 };
 
 await writeFile(`${REPORTS}/report.html`, renderHtml(report));
+
+// summary.json is the canonical record the tiered renderers read. Without
+// this the evidence sheet and the derived JUnit were unreachable from a
+// real run -- tested code that nothing called.
+const cases = suites.flatMap((s) => s.cases);
+const summary = buildSummary({
+  releaseTag: report.releaseTag,
+  target: report.target,
+  startedAt: new Date().toISOString(),
+  digests: Object.fromEntries(
+    Object.entries(provenance).filter(([k]) => k.endsWith('_sha')),
+  ),
+  realmMutations: (provenance.realm_mutations ?? '').split(';').filter(Boolean),
+  // Capability comes from the journey registry: JUnit cannot carry one,
+  // which is why summary.json rather than JUnit is canonical.
+  journeys: ALL_JOURNEYS.map((journey) => {
+    const own = cases.filter((c) => c.name.includes(journey.id));
+    return {
+      id: journey.id,
+      title: journey.title,
+      capability: journey.capability,
+      ok: own.length > 0 && own.every((c) => c.ok),
+      trace: own.map((c) => ({
+        label: c.name,
+        ok: c.ok,
+        ...(c.failure ? { error: c.failure } : {}),
+      })),
+    };
+  }),
+});
+
+await writeFile(`${REPORTS}/summary.json`, JSON.stringify(summary, null, 2));
+await writeFile(`${REPORTS}/trace.txt`, renderTier2(summary));
+await writeFile(`${REPORTS}/evidence-sheet.txt`, renderEvidenceSheet([summary]));
+await writeFile(`${REPORTS}/junit-derived.xml`, renderJUnit(summary));
 
 // Plain text for the job log, and the same content as the run summary so
 // the result is legible without downloading the artifact.

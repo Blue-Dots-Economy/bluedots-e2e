@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { releaseTagFromEnv, targetFromEnv } from './from_env.js';
+import { releaseTagFromEnv, seedFromEnv, targetFromEnv } from './from_env.js';
 
 describe('targetFromEnv', () => {
   test('reads a dot-only target', () => {
@@ -44,5 +44,30 @@ describe('releaseTagFromEnv', () => {
 
   test('accepts the fleet-wide release tag shape', () => {
     expect(releaseTagFromEnv({ JOURNEY_RELEASE_TAG: '202608-s2-rc11' })).toBe('202608-s2-rc11');
+  });
+});
+
+describe('seedFromEnv', () => {
+  test('uses an explicit seed when given', () => {
+    expect(seedFromEnv({ JOURNEY_SEED: 'abc123' })).toBe('abc123');
+  });
+
+  test('derives a stable seed from the run when not given', () => {
+    // Stable WITHIN a run so every journey in it shares fixtures, and
+    // printed so a failure can be reproduced exactly.
+    const env = { JOURNEY_RELEASE_TAG: '202609-s1-rc1', JOURNEY_TARGET: 'purple_dot' };
+
+    expect(seedFromEnv(env)).toBe(seedFromEnv(env));
+  });
+
+  test('differs between targets, so two targets do not collide', () => {
+    const a = seedFromEnv({ JOURNEY_RELEASE_TAG: 't', JOURNEY_TARGET: 'purple_dot' });
+    const b = seedFromEnv({ JOURNEY_RELEASE_TAG: 't', JOURNEY_TARGET: 'blue_dot/ka-dhwd' });
+
+    expect(a).not.toBe(b);
+  });
+
+  test('is never empty, since an empty seed silently disables determinism', () => {
+    expect(seedFromEnv({}).length).toBeGreaterThan(0);
   });
 });

@@ -48,3 +48,26 @@ export function releaseTagFromEnv(
   }
   return raw;
 }
+
+/**
+ * The fixture seed for this run.
+ *
+ * Fixtures are deterministic per seed so a failure can be reproduced, but
+ * that is worthless if nothing sets one -- the generator was falling back
+ * to Date.now(), which made every run unreproducible while a unit test
+ * asserted determinism. The seed is recorded in the run's provenance, so a
+ * red run can be replayed with JOURNEY_SEED=<value>.
+ */
+export function seedFromEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+): string {
+  const explicit = env.JOURNEY_SEED?.trim();
+  if (explicit) return explicit;
+
+  // Stable within a run, distinct between targets: two targets sharing
+  // fixture values would make a search assertion ambiguous about which
+  // run's item it matched.
+  return [env.JOURNEY_RELEASE_TAG ?? 'local', env.JOURNEY_TARGET ?? 'default']
+    .join('-')
+    .replace(/[^a-zA-Z0-9-]/g, '-');
+}
