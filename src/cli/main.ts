@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline/promises';
-import { stdin, stdout } from 'node:process';
+import { stderr, stdin, stdout } from 'node:process';
 import { parseArgs } from './args.js';
 import { renderTargetList, resolveSelection } from './target_selection.js';
 import { listTargets, resolveTarget } from '../targets/targets.js';
 import { schemasRoot } from '../config/paths.js';
+import { imageRef, resolveDigests, resolveTags } from '../images/images.js';
+import { dockerInspector } from '../images/docker_inspector.js';
+import { SERVICES } from './args.js';
 
 async function promptForTarget(targets: readonly { id: string }[]): Promise<string> {
   const rl = createInterface({ input: stdin, output: stdout });
@@ -47,8 +50,6 @@ async function main(argv: string[]): Promise<number> {
 
   const target = await resolveTarget(root, selection.dot, selection.instance);
 
-  // Phases 2-5 arrive with #4 onward. Until then, print what a run resolved
-  // so the target/schema wiring is verifiable on its own.
   stdout.write(
     [
       `target          ${target.id}`,
@@ -59,12 +60,29 @@ async function main(argv: string[]): Promise<number> {
       '',
     ].join('\n'),
   );
+
+  // Phase 1 — resolve. Every service image is pinned to a digest before
+  // anything boots, because branch tags are mutable and a run must be able to
+  // say exactly what it verified.
+  const tags = resolveTags({ branch: args.branch, imagesFromTag: args.imagesFromTag });
+  const refs: Record<string, string> = {};
+  for (const service of SERVICES) {
+    refs[service] = imageRef(service, 'api', tags[service]);
+  }
+  const digests = await resolveDigests(refs, dockerInspector);
+
+  stdout.write('\nresolved images\n');
+  for (const service of SERVICES) {
+    stdout.write(`  ${service.padEnd(22)} ${tags[service].padEnd(16)} ${digests[service]}\n`);
+  }
+
+  // Phases 2-5 arrive with #4 onward.
   return 0;
 }
 
 main(process.argv.slice(2))
   .then((code) => process.exit(code))
   .catch((err: unknown) => {
-    stdout.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   });
