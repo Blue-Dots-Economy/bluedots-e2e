@@ -69,111 +69,207 @@ J1 (onboarding → dashboard) exercises the identity minting that made the runbo
 manual. J2 exercises the asynchronous spine — `xadd`, consumer-group drain,
 embedding, index upsert, retrievability — which is where flake actually lives.
 A suite that is flaky is a suite that gets disabled, so the spine is the risk
-worth retiring on journey one. J2 also needs no aggregator, no MinIO, and no
-browser path, so its stack is roughly half of J1's.
+worth retiring on journey one. J2 also needs no aggregator, no MinIO and no browser path, so its stack is
+smaller than J1's — around eleven containers (§4).
 
 ---
 
 ## 2. What the code changed
 
-Five findings from reading the services. Each contradicts or sharpens the parent
-design, and each is load-bearing for the plan.
+Findings from reading the four services. Each contradicts or sharpens the
+parent design, and each is load-bearing for the plan.
+
+An earlier revision of this section got several of these wrong by reasoning
+from the repositories' root `docker-compose.yaml` files. The authoritative
+file is **`Signals-DPG/local-setup/docker-compose.yml`** (505 lines), which
+already boots most of the stack this suite needs. Read it before §4.
 
 ### 2.1 signals-search shares signals-dpg's database
 
-`signals-search/src/worker/process_event.ts` reads the item row with raw SQL
-against `items` — the stream entry carries only a key, never a payload. The two
-services therefore share one Postgres, which the parent design's diagram does
-not show. Compose wires signals-search's `sql` at the signals-dpg database.
+`signals-search/src/worker/process_event.ts:26-32` reads the item row with raw
+SQL against `items` — the stream entry carries only a key, never a payload.
+`local-setup/docker-compose.yml:441-443` states it outright: "The SAME database
+signals-dpg uses: signals-search reads `apikey`, `items` and `item_search` from
+it. A separate DB silently yields 401s and an empty index."
 
-### 2.2 Two images are not published
+### 2.2 The item_search DDL belongs to signals-dpg, and only a tools image can create it
 
-`build-images.yaml` and `ci.yaml` publish a matrix of `api` and `ui` only, to
-`ghcr.io/blue-dots-economy/<repo>/<service>`. Neither the custom Keycloak image
-nor `dpg-db-postgis-pgvector:17` exists in any registry. The harness builds
-both. This is the largest single deviation from the parent design, which
-assumed six pullable images.
+`signals-search/src/db/migrate.ts:21-52` hard-fails at boot unless `item_search`
+exists and carries `source_updated_at`. It does not create it —
+`local-setup/docker-compose.yml` sets `RUN_MIGRATIONS: "false"` for both search
+services because the DDL is signals-dpg's.
 
-The Keycloak image is built from **signals-dpg's** `infra/keycloak/Dockerfile`
-— it carries the OTP provider jar and the themes — but imports
-**aggregator-dpg's** realm export (§2.3). That pairing is unusual enough to
-state plainly, because neither repository alone produces a working image for a
-four-service stack.
+What creates it is the `signals-bootstrap` one-shot: `drizzle-kit push --force`
+then `pnpm --filter api db:init`. And it needs its own image, because the
+published api image cannot run either command.
+`local-setup/infra/signals-bootstrap.Dockerfile:3-6`:
 
-### 2.3 The two realm exports are not interchangeable
+> signals-dpg's production API image (apps/api/Dockerfile) is pruned to
+> prod-only dependencies, so it does NOT contain drizzle-kit or tsx and
+> therefore cannot run migrations or the init/seed scripts.
 
-`Signals-DPG/infra/keycloak/render-realm.sh` states that the signals-dpg and
-aggregator-dpg realm exports stay interchangeable. They do not:
+The runner stage is `dhi.io/node:24-alpine` — hardened, no shell, no package
+manager. The `prod-deps` stage names `tsx` as one of the peers it deliberately
+starves.
 
-| | signals-dpg `bluedots-realm.json` | aggregator-dpg `realm.json` |
-|---|---|---|
-| realm name | `bluedots` (literal) | `__KEYCLOAK_REALM__` (placeholder) |
-| clients | 4 | 8 — strict superset; identical mapper counts on the shared 4 |
-| auth flows | 2 | 9 (portal SSO and OTP gates) |
-| `browserFlow` | `bluedots-otp-browser` | `aggregator-otp-browser` |
-| `directGrantFlow` | `direct grant` | `direct grant` |
+This has a consequence the design has to absorb: **`seed_service_users.ts` is
+TypeScript and runs only in the tools image**, which is built from source and
+therefore cannot be resolved to a registry digest. §4 states how the digest
+rule accommodates it.
 
-The harness imports **aggregator-dpg's** export, pinned by commit SHA: it is the
-only one carrying every client a four-service stack needs. The differing
-`browserFlow` does not matter, because the harness authenticates by direct grant
-and client credentials and never drives the browser OTP UI. `directGrantFlow` is
-identical in both, which is exactly what the parent design's phase 3 relies on.
+### 2.3 No custom Keycloak image is needed
 
-### 2.4 The voice bot never calls search
+Both reference composes run **stock** `quay.io/keycloak/keycloak:26.5.5` with
+`render-realm.sh` as the entrypoint and providers, themes and realms
+bind-mounted (`local-setup/docker-compose.yml:107, 165-172`). `start-dev`
+indexes the mounted provider jar at boot, so no rebuild is needed to pick up a
+new one. signals-dpg's `infra/keycloak/Dockerfile:12-16` says as much itself,
+and deliberately does not copy `render-realm.sh` (lines 17-19) — under
+Kubernetes an initContainer does the substitution — so an image built from it
+could not render its own realm anyway.
 
-Parent design open question 2 asked whether the voice bot's search call targets
-signals-dpg's BFF or signals-search directly. Neither. `org_type: 'voice'` is
-admitted on exactly three paths in signals-dpg — `GET /api/v1/admin/participant`
-(lookup by email or phone), `POST /api/v1/admin/participant` (tier-aware
-upsert), and action perform via `_resolve_acting_actor`. No search route accepts
-a voice acting org. When J5 is built it is lookup → upsert → action, with any
-search hit asserted as a downstream projection rather than a call the voice bot
-makes. **This resolves open question 2.**
+A Keycloak **server** image is separately published and deployed
+(`bluedots-automation/helm/aggregator/values.yaml:277`), but the harness needs
+neither. It mounts, like the reference composes do.
 
-### 2.5 The stack has two authentication systems, not one
+### 2.4 Keycloak boot needs a post-import fixup, or identities fail silently
 
-signals-search does not accept Keycloak tokens. `signals-search/src/api/auth.ts`
-authenticates by an `x-api-key` header, SHA-256 hashed and matched against the
-`apikey` table — better-auth's scheme and table, which survived the Keycloak
-migration in signals-dpg. signals-dpg itself accepts both: Keycloak sessions and
-tokens for user-facing routes, `x-api-key` for server-to-server callers
-(`create_item.ts` branches on the header to decide whether `created_by` may be
-set).
+`infra/keycloak/init/apply-user-profile.sh:5-17`:
 
-So phase 3 mints identities in **both** systems. The parent design's phase 3
-describes only the Keycloak half; a harness built to that description gets a 401
-from `/v1/search` and no journey passes.
+> Keycloak 26 **ignores `kc.user.profile.config` from a realm import**. Verified
+> on 26.5.5 … The consequence is silent and severe: writes of the `phoneNumber`
+> attribute are DROPPED rather than rejected … This must run after every
+> Keycloak boot.
 
-The API key is not hand-inserted. signals-dpg ships
-`apps/api/scripts/seed_service_users.ts` — idempotent, creates the
-`network_service` organization and its service user, mints one key, prints it
-once. The production equivalent is `provision_service_users.sql`, applied by the
-deploy-time migrate job from the `AGGREGATOR_DPG_API_KEY` secret. Running the
-repository's own script keeps the harness on the real provisioning path and out
-of the business of knowing the hash scheme.
+The same script creates the `signals_acting_orgs` protocol mappers (lines
+143-232), because the realm JSON is consulted only on first import. The
+reference compose runs it as the `keycloak-init` one-shot and calls it "NOT
+optional when running Keycloak". Any harness that imports a realm and starts
+minting users without it gets a realm that looks correct and drops attributes.
 
-### 2.6 Contracts, pinned
+### 2.5 Two authentication systems, and the Keycloak half is switched off
+
+signals-search accepts only an `x-api-key`, SHA-256 base64url-matched against
+the `apikey` table (`signals-search/src/api/auth.ts:6-25`) — better-auth's
+table, which survived the Keycloak migration. signals-dpg accepts both, and
+branches on the header at `apps/api/src/routes/v1/item/create_item.ts:169-186`.
+
+Three things block the Keycloak half as the parent design describes it:
+
+1. **Direct grant is disabled on every usable client.**
+   `directAccessGrantsEnabled` is `false` for `signals-ui`, `signals-api`,
+   `aggregator-dpg` and `voice-dpg` in both realm exports. The only
+   direct-grant client in either is `campaign-manager`, which is not in
+   `KEYCLOAK_ACCEPTED_CLIENT_IDS` (default `signals-ui`,
+   `packages/config/src/secrets.ts:109`), so its token is rejected on the human
+   path regardless.
+2. **The `signals-api` service token is rejected by design.**
+   `apps/api/src/services/auth/service_account.ts:101` rejects any clientId
+   absent from `KEYCLOAK_SERVICE_CLIENT_IDS`, which defaults to empty
+   (`secrets.ts:134`). The docblock at `secrets.ts:100-109` is explicit that
+   `signals-api` is deliberately excluded because it is not an integrating DPG.
+3. **`AUTH_PROVIDER` defaults to `betterauth`**, which
+   `local-setup/docker-compose.yml:295-297` says "keeps every Keycloak path
+   dormant; the KEYCLOAK_* values below are inert".
+
+§5 states what the harness does about each. None of it is free, and one item
+requires mutating the realm after import — which the earlier "no test-only code
+in the product" claim glossed over.
+
+### 2.6 The reconciliation sweep is a second, silent ingestion path
+
+`signals-search/src/worker/main.ts:42-52` runs `sweep()` at boot and every
+`SWEEP_INTERVAL_MS`, default **60_000** (`src/config.ts:42`).
+`src/ingest/sweep.ts:22-30` selects every `items` row with no `item_search` row
+and indexes it directly from Postgres, through the same `indexItem` the stream
+path uses. `Signals-DPG/apps/api/src/utils/publish_item_event.ts:22-23` names
+it: "The signals-search reconciliation sweep is the backstop."
+
+For production this is good design. For this suite it is the single largest
+vacuous-pass risk, because it makes "the item is findable" true whether or not
+the event ever crossed the stream. §7 handles it; §9 adds a control for it.
+
+### 2.7 The voice bot, and what open question 2 actually asks
+
+`org_type: 'voice'` is admitted as an acting-org type globally
+(`apps/api/src/middleware/acting_org.ts:8`); three routes check it —
+`GET`/`POST /api/v1/admin/participant` and action perform via
+`_resolve_acting_actor`.
+
+An earlier revision claimed this resolved the parent design's open question 2.
+It does not. signals-dpg **does** have a search BFF —
+`apps/api/src/routes/v1/network/item/discover.ts`, calling signals-search
+`/v1/search` through `services/signals_search_client.ts:371`. It is
+unauthenticated by design (`discover.ts:39-41`) and `acting_org_preHandler` is
+wired only for `/api/v1/admin`, `/api/v1/aggregator` and `/api/v1/action`
+(`apps/api/src/app.ts:98-99`). So no search route takes an acting org from
+anyone, which makes the observation true and uninformative. The real answer is
+that the BFF is the search path and it needs no acting org.
+
+That BFF also **fails open**: when signals-search is unconfigured, times out or
+returns non-2xx, `discover.ts:51-64` falls back to
+`fetchItemsAcrossInstances` and returns 200 with `meta.source:
+'native_fallback'`. Both `SIGNALS_SEARCH_URL` and `SIGNALS_SEARCH_API_KEY` are
+optional (`secrets.ts:305-306`). A journey asserting through the BFF passes with
+signals-search absent entirely. J2 asserts against `/v1/search` directly and so
+avoids this, at the cost of testing a path no end user takes. §14 carries the
+question of which a later journey should cover.
+
+### 2.8 Contracts, pinned
 
 ```
-stream    signals:item-events              (MAXLEN ~ trimmed)
-group     signals-search                   DLQ signals:item-events:dlq
-envelope  producer omits occurred_at; xadd injects it
-embedder  POST {EMBEDDING_BASE_URL}/embeddings
+stream    signals:item-events    MAXLEN ~ 100_000 (secrets.ts:395)
+group     signals-search         DLQ signals:item-events:dlq
+envelope  producer omits occurred_at; xadd injects it (publish_item_event.ts:39)
+          the CONSUMER requires it (ingest/stream_consumer.ts:13)
+embedder  POST {EMBEDDING_BASE_URL}/embeddings   base URL must end in /v1
           request   { model, input: string[] }
           response  { data: [{ embedding: number[] }] }
 search    POST /v1/search · /v1/search/flat · /v1/relevance
 ```
 
-`EMBEDDING_DIM` is capped at 2000 by the pgvector HNSW index limit. The stub
-embedder returns deterministic, dimension-correct vectors; ranking quality is an
-offline evaluation, not a release gate.
+`EMBEDDING_DIM` is **pinned to 1024**, not merely capped: `ITEM_SEARCH_VECTOR_DIM
+= 1024` (`db/item_search_repo.ts:5`), the column is `vector(1024)`
+(`db/migrations/0001_item_search.sql:10`), and `worker/main.ts:17-22` throws at
+boot on any mismatch. The `.max(2000)` in `config.ts:19` never binds.
+
+The `occurred_at` asymmetry matters in exactly one place: the harness plays
+producer in the §9 negative controls. An `xadd` that omits `occurred_at` is
+dead-lettered as poison rather than processed.
 
 `publishItemEvent` is best-effort — it swallows `xadd` failures and logs a
 warning. `create_item.ts` awaits it before responding, so there is no race
 between a 200 and the stream entry; but a dropped event leaves the stream
-untouched, which the drain awaiter must not read as "drained". §7 handles this.
+untouched, which the drain awaiter must not read as "drained" (§7).
 
----
+### 2.9 The two realm exports are not interchangeable
+
+`Signals-DPG/infra/keycloak/render-realm.sh:11-13` states that the signals-dpg
+and aggregator-dpg realm exports stay interchangeable. They do not:
+
+| | signals-dpg `bluedots-realm.json` | aggregator-dpg `realm.json` |
+|---|---|---|
+| realm name | `bluedots` (literal) | `__KEYCLOAK_REALM__` (placeholder) |
+| clients | 4 | 8 — strict superset; identical mapper counts on the shared 4 |
+| auth flows | 2 | 9; **zero alias overlap** |
+| placeholders substituted | 11 | 19 |
+| `directAccessGrantsEnabled` | false on all 4 | false on 7 of 8 |
+
+The harness imports **aggregator-dpg's** export: it is the only one carrying
+every client a four-service stack needs. Two consequences the numbers hide:
+
+- It must be rendered by **aggregator-dpg's** script. Signals' substitutes
+  neither the realm name nor any client secret (§5.2).
+- `signals-ui` in the aggregator export sets `"login_theme": "signals"`
+  (`realm.json:544`), and that theme exists only under
+  `aggregator-dpg/infra/keycloak/themes/`. The harness mounts both repositories'
+  theme directories, which the reference composes' bind-mount approach makes
+  trivial and an image build would not.
+
+The `signals-api` client secret also differs between exports — signals hardcodes
+`signals-api-dev-secret-change-me`, aggregator renders `__SIGNALS_API_SECRET__`
+defaulting to `signals-api-local-dev-secret` (`render-realm.sh:38`). Carrying
+the wrong literal yields `401 invalid_client`.
 
 ## 3. Entry point
 
@@ -219,107 +315,236 @@ convenience: a gate that explains nothing when red is a gate that gets disabled.
 
 ## 4. Stack composition
 
-The full stack is defined in compose; each journey declares the profiles it
-needs. J2 boots eight containers of roughly fourteen. Adding J1 or J3 later is
-a profile declaration, not a compose change.
+**The harness extends `Signals-DPG/local-setup/docker-compose.yml`; it does not
+rewrite it.** That file already carries postgres (pgvector + postgis), redis
+with the password signals-dpg requires, stock Keycloak with its providers and
+themes mounted, the `keycloak-init` fixup, mailpit, the `signals-bootstrap`
+tools one-shot, signals-api, signals-ui, `tei-embeddings`, and signals-search
+api + worker — all behind the `keycloak` and `search` profiles, with the env
+wiring that makes them agree. Rebuilding that from the parent design's diagram
+would reproduce a file that exists, minus the two dozen comments explaining why
+each value is what it is.
 
-**Booted for J2:**
+The harness contributes an overlay: an `-f` layered compose file plus a
+generated `.env`. What the overlay changes:
 
-| Service | Image | Note |
+| Change | Why |
+|---|---|
+| Pin every image to a resolved digest | §3. Reference compose uses floating tags. |
+| `SIGNALS_NETWORK` → a network **directory** | Two networks in one stack (below). |
+| `AUTH_PROVIDER=keycloak`, `KEYCLOAK_*` split | Keycloak paths are dormant by default (§2.5). |
+| `SERVED_DOMAINS` for purple and blue | Default is `blue_dot/seeker,blue_dot/provider`; an unserved domain 4xxs at create (`create_item.ts:204`). |
+| `SWEEP_INTERVAL_MS` far past the deadline | Neutralise the backstop (§2.6, §7). |
+| `CACHE_TTL_SECONDS=0` | `api/result_cache.ts:16-23` caches empty results for 45s by default. |
+| `PEL_MIN_IDLE_MS` lowered | Default 60_000 puts DLQ escalation ~4 min out (§7). |
+| `RERANK_DEFAULT=false`, TEI kept | Already the reference default; see the embedder note below. |
+
+### Two networks in one stack
+
+signals-search's `NETWORK_CONFIG_PATH` accepts a **directory**:
+`config/network_registry.ts:26-33` reads every `*.json` in it and keys them by
+`config.id`. signals-dpg takes `NETWORK_CONFIG_URLS` (plural). So the harness
+mounts a directory holding `purple_dot/network.json` and `blue_dot/network.json`
+for search, and points signals-dpg's URLs at the schema-server over the same
+pinned checkout. One stack, both networks.
+
+The duplicate-`id` caveat in the reference compose applies: directory mode takes
+the last file for a repeated id. The harness asserts the ids are distinct at
+T3 rather than discovering a silently shadowed config later.
+
+### Which schema checkout
+
+There are two purple_dot configs in play — `bluedots-schemas/purple_dot/` and
+`Signals-DPG/examples/schemas/purple_dot/` — and they **have already drifted**
+(`plural_label`, `instance_name`). The harness pins `bluedots-schemas` by commit
+SHA and feeds both consumers from it, because that repository is the one the
+deployed instances are configured against. This means the local stack no longer
+matches `examples/schemas`, which is a real divergence and belongs in §14 rather
+than being hidden by picking whichever is convenient.
+
+### The embedder: real TEI, not a stub
+
+The parent design specifies a stub embedder to keep memory down. That was
+written before checking the registry:
+`ghcr.io/blue-dots-economy/tei-bge-m3:cpu-1.7-bge-m3` **is published**, public,
+and has bge-m3 baked in, so nothing downloads a 2.3 GB model at runtime. The
+reference compose's own comment argues against substituting anything else:
+`model_version` feeds the ingest content hash, so a different model yields local
+relevance scores that correspond to nothing deployed.
+
+The harness therefore runs real TEI, which removes a T3 deliverable and makes
+the indexed vectors the same ones production computes. Cost: ~3-8 GB and a ~35s
+first-load, which §14.1 must weigh against the runner budget. A stub stays the
+fallback if the runner cannot hold TEI, and in that case §14.1's answer changes
+the design rather than the other way round.
+
+### Images and the digest rule
+
+| Component | Image | Note |
 |---|---|---|
-| postgres-pgvector | built by harness | `dpg-db-postgis-pgvector:17`, unpublished |
-| redis | `redis:7.2-alpine` | signals-dpg's stream and queues |
-| keycloak | built by harness | aggregator-dpg realm, SHA-pinned |
-| schema-server | built by harness | static server over pinned `bluedots-schemas`; serves purple and blue |
-| signals-dpg api | `ghcr.io/.../signals-dpg/api` | |
-| signals-search api | `ghcr.io/.../signals-search/<service>` | shares the Postgres above; image name unconfirmed (§13.2) |
-| signals-search worker | same image, worker entrypoint | consumer group `signals-search` |
-| stub-embedder | built by harness | deterministic, dimension-correct |
+| signals-dpg api | `ghcr.io/blue-dots-economy/signals-dpg/api` | published |
+| signals-search api + worker | `ghcr.io/blue-dots-economy/signals-search` | **one** image, no `/<service>` suffix; different entrypoint per role |
+| TEI embedder | `ghcr.io/blue-dots-economy/tei-bge-m3:cpu-1.7-bge-m3` | published |
+| keycloak | `quay.io/keycloak/keycloak:26.5.5` | stock, mounts (§2.3) |
+| mailpit, redis | upstream | |
+| postgres | built from `local-setup/infra/postgres.Dockerfile` | pgvector + postgis, unpublished |
+| **tools/bootstrap** | built from `local-setup/infra/signals-bootstrap.Dockerfile` | unpublished, and unpublishable at a service digest (§2.2) |
 
-**Defined, not booted for J2:** aggregator-dpg api and worker, MinIO and its
-init sidecar, notification-service and its worker, its separate Redis, Mailpit,
+Two of these are built from source, so §3's "whatever the input, resolve lands
+on a digest" cannot hold for all seven. The rule is narrowed rather than
+quietly broken: **the four service images under test always resolve to a
+digest**, and the built support images are pinned by the source SHA they were
+built from, which the report prints alongside the digests. A support image is
+not what a release ships, so this preserves the property that matters — knowing
+exactly what was verified — without pretending to a purity the toolchain does
+not allow.
+
+### Platform
+
+Both `tei-embeddings` and the signals-search images are **amd64-only**;
+signals-search's CI does not set `platforms:`. On Apple Silicon the reference
+compose runs them under emulation, which it documents as measured rather than
+assumed. `SIGNALS_SEARCH_IMAGE` and `SEARCH_PLATFORM` are the escape hatches for
+a native arm64 build. §3's "CI and a laptop differ only in flags" is therefore
+not quite true, and §14.5 carries it: a suite that is slow on the machine of the
+person debugging it gets run only in CI, and then ignored in CI.
+
+### What J2 boots
+
+Profiles `keycloak` and `search`, which is: postgres, redis, keycloak,
+keycloak-init, mailpit, signals-bootstrap, signals-api, tei-embeddings,
+signals-search-api, signals-search-worker, plus the harness's schema-server.
+signals-ui is not needed — J2 asserts over HTTP. Around eleven containers.
+
+Deferred and defined, for later journeys: aggregator-dpg api/web/worker, MinIO
+and its init sidecar, notification-service and its worker, its separate Redis,
 and the SMS provider stub.
-
-Two decisions worth naming. Each service keeps its own Redis where it has one
-today — sharing a single instance would make queue-drain assertions ambiguous
-across services, and drain is the assertion J2 rests on. And the stack is
-hermetic, booted per run from resolved digests rather than shared with anyone,
-so a red run is reproducible locally and cannot be shared-state flake.
-
-Network schemas come from a **schema-server container over a `bluedots-schemas`
-checkout pinned by commit SHA**, mirroring the local `:8765` setup. Baking the
-schemas into this repository would let them drift from the real ones silently;
-pointing at the deployed schema URL would let a change outside the release turn
-the gate red or green.
-
----
 
 ## 5. Seeding
 
-Phase 3 is what removes the runbook's manual steps. All the routes the journeys
-need already exist; authentication was the only blocker.
+Phase 3 is what removes the runbook's manual steps. It is also the phase the
+parent design underspecified most: it describes minting a Keycloak user and
+taking a client-credentials token, and neither works as written (§2.5).
 
-For J2:
+### 5.1 Boot configuration
 
-- **Keycloak.** Import the pinned aggregator-dpg realm. Mint one participant
-  user through the Admin API and obtain a token by direct grant. Take a
-  client-credentials token for `signals-api`.
-- **API key.** Run signals-dpg's `apps/api/scripts/seed_service_users.ts` to
-  provision the `network_service` organization, its service user, and one
-  `apikey` row; capture the key it prints. This is what authenticates
-  `POST /v1/search` and signals-dpg's server-to-server routes (§2.5). It is the
-  repository's own script on the real provisioning path, not a harness-authored
-  insert.
-- **Postgres.** signals-dpg migrations must have completed before phase 3
-  begins — gated on a real signal, never slept on.
-- **Schemas.** `purple_dot` and `blue_dot` served from the pinned checkout.
+signals-dpg fails fast on missing env, so the overlay supplies all of it.
+Beyond the Keycloak block: `INSTANCE_NAME`, `INSTANCE_ENV`, `API_DOMAIN`,
+`AUTH_SECRET` (min 8), `SERVED_DOMAINS` (min 1), `INSTANCE_SHARED_SECRET`
+(min 32), `SCHEMA_REGISTRY_URL`, `POSTGRES_USER`/`PASSWORD` (min 8)/`DB`,
+`REDIS_PASSWORD`, and `SIGNALS_PII_KEY` as a base64 32-byte key
+(`packages/config/src/secrets.ts:5-399`). The reference compose is the working
+set; the overlay changes values, not the shape.
 
-### Realm rendering
+Three that are easy to get wrong:
 
-`render-realm.sh` substitutes placeholders at first import only, and four of its
-inputs are fail-hard (`:?`): `PUBLIC_BASE_URL`, `AGGREGATOR_API_SECRET`,
-`AGGREGATOR_PORTAL_SECRET`, `AGGREGATOR_BFF_SECRET`. The harness supplies all
-four as fixed, non-secret test values — the realm is booted fresh per run and
-never reachable from outside the compose network.
+- **`AUTH_PROVIDER=keycloak`.** Default `betterauth` leaves every Keycloak path
+  inert (§2.5).
+- **`KEYCLOAK_BASE_URL` vs `KEYCLOAK_INTERNAL_BASE_URL`.** The `iss` claim
+  derives from the public one (`secrets.ts:84-89`); a browser-vs-container
+  mismatch fails every token with a signature that looks fine.
+- **`SERVED_DOMAINS` must name purple's and blue's domains.**
+  `create_item.ts:204` checks `isServedDomainBinding`, so J2's first step 4xxs
+  otherwise. The reference default is blue-only.
 
-One is easy to get silently wrong. aggregator-dpg's export names the realm
-`__KEYCLOAK_REALM__`, a placeholder, while signals-dpg's names it literally
-`bluedots`. The harness must render it to the value signals-dpg's configuration
-expects, or tokens are issued against a realm no service trusts and every
-journey fails at its first authenticated call. T3 owns this and asserts it: the
-seed verifies the rendered realm name matches what signals-dpg is configured
-with, rather than discovering the mismatch as a 401 three steps later.
+Also `RUN_MIGRATIONS=false` for signals-search, and note `envBool` accepts only
+`true|false|1|0` (`signals-search/src/config.ts:8-12`) — a `False` fails boot
+with a Zod error.
 
-### Reusing what already exists
+### 5.2 Realm import, then two fixups
+
+Import the aggregator-dpg export (§2.9), pinned by SHA, rendered through
+**aggregator-dpg's** `render-realm.sh`, not signals-dpg's. The two are not
+interchangeable in the direction the comment claims: signals' script
+substitutes 11 placeholders and aggregator's 19, and **signals' script
+substitutes neither `__KEYCLOAK_REALM__` nor any client secret**. Rendering the
+aggregator export through it imports a realm literally named
+`__KEYCLOAK_REALM__` whose eight clients have `__*_SECRET__` for secrets.
+
+Five inputs are fail-hard (`:?`): `KEYCLOAK_REALM`, `PUBLIC_BASE_URL`,
+`AGGREGATOR_API_SECRET`, `AGGREGATOR_PORTAL_SECRET`, `AGGREGATOR_BFF_SECRET`.
+The harness supplies fixed non-secret test values; the realm is booted fresh per
+run and unreachable outside the compose network. Because `KEYCLOAK_REALM` is
+itself fail-hard, the realm-name mismatch that §2.9 warns about surfaces as a
+boot failure rather than a silent 401 — the script already guards it.
+
+Then, in order:
+
+1. **`apply-user-profile.sh`** (§2.4). Without it `phoneNumber` writes are
+   dropped silently and the `signals_acting_orgs` mappers do not exist.
+2. **Enable direct grant.** `PUT /admin/realms/{realm}/clients/{id}` setting
+   `directAccessGrantsEnabled: true` on the client the harness authenticates
+   with, because it is `false` on every usable client in both exports (§2.5).
+
+Step 2 is a realm mutation, and the design should own that plainly: the earlier
+claim of "the checked-in realm, unmodified, no test-only code in the product"
+is not achievable. What *is* preserved is the property that matters — the
+service still runs its genuine authorization check against a real token, and no
+test-only branch exists in product code. The mutation is confined to the
+harness, logged in the run report, and asserted to be the only one.
+
+### 5.3 Identities
+
+- **Realm role.** `KEYCLOAK_REQUIRED_REALM_ROLES` defaults to
+  `signals_participant,signals_admin` (`secrets.ts:121`). Both realms define
+  them; the harness assigns one to the minted participant, or every human-path
+  call 403s.
+- **Service auth.** Rather than fighting `KEYCLOAK_SERVICE_CLIENT_IDS`, the
+  harness uses `x-api-key` — which is what signals-search requires anyway
+  (§2.5) and what the reference compose assumes for search. If a later journey
+  needs client-credentials, it names an integrating DPG client and adds it to
+  `KEYCLOAK_SERVICE_CLIENT_IDS`; `signals-api` cannot be that client by design.
+- **The API key** comes from `apps/api/scripts/seed_service_users.ts`, run in
+  the tools image (§2.2). Two constraints: the script currently randomizes org
+  ids and keys, so the harness cannot predict what it provisioned — epic #1's
+  P0 makes it accept pinned values, and **T5 depends on that landing first**
+  (§13). And it prints the raw key only on first mint, returning `null` on a
+  re-run (lines 115-117, 160-166), which is fine while every run is hermetic and
+  breaks the day `--keep-stack` reuse or a named volume appears.
+
+### 5.4 Schema and migration gating
+
+`signals-bootstrap` runs `drizzle-kit push --force` then `db:init`, creating
+`item_search` among the rest. signals-search's `assertSchemaReady` then passes.
+Phase 2's gate is `service_completed_successfully` on that one-shot — a real
+signal, not a healthcheck poll, which is what the reference compose already
+uses for both search services.
+
+### 5.5 Getting the item to `live`
+
+Nothing in the parent design mentions this, and without it J2 can never pass.
+
+`signals-search/src/db/search_query.ts:62` filters `lifecycle_status = 'live'`.
+In `create_item.ts`, a self-create promotes past `draft` only when it carries
+consent (`:249` `resolveSelfConsentPromotes`, `:297` `consent_accepted`), and
+`tagUserWithDefaultAggregator` (`:278`) must find an owning aggregator org where
+the domain declares `owner_required`. The docblock at `:265-280` spells out that
+a brand-new signup's first profile is otherwise "classified unowned and lands in
+`draft`".
+
+So phase 3 seeds an aggregator organization and `createProfile` carries
+consent — or the item sits in `draft`, the drain awaiter correctly reports
+drained, and the search assertion fails forever for a reason that looks like an
+ingestion bug.
+
+This is worth stating as a general rule, because it is how a journey suite rots:
+**a step's precondition is part of the step**. `createProfile({ as: 'seeker' })`
+must produce a live, searchable profile or be named something that admits it
+does not.
+
+### 5.6 Reusing what already exists
 
 signals-dpg ships `scripts/e2e/` — `generate_fixtures.mts`,
 `submit_qr_participants.mts`, `seed_actions.mts`, `purple_dot_providers.csv`,
-`purple_dot_qr_payloads.json` and a README. These are the runbook steps the
-parent design describes as "already scripted", and they carry the deterministic
-purple_dot fixture generation this suite needs.
+`purple_dot_qr_payloads.json`, and a README. These are the runbook steps the
+parent design calls "already scripted", and they carry deterministic purple_dot
+fixture generation.
 
-T7's fixtures port these rather than reinventing them. Where a script is usable
-as-is, the harness invokes it; where only the fixture data is wanted, the data
-moves and the generator stays in signals-dpg. What must not happen is a second,
-subtly different purple_dot fixture set — two generators disagreeing is a
-failure mode with no owner.
-
-Because `aggregator_id` and `aggregator_type` are Keycloak user attributes
-mapped to JWT claims by protocol mappers in the checked-in realm, a real user
-created through the Admin API produces a genuine token, and the service performs
-its real authorization check. No OTP scraping, and **no test-only code in the
-product**.
-
-Both networks are served, and both are seeded. `purple_dot` declares 9
-vectorize-marked fields against `blue_dot`'s 31, so the two exercise materially
-different ingestion paths through the same steps.
-
-Fixtures are per-network generators, so blue does not get its own scenario — it
-gets a row in the matrix and a fixture. If adding blue turns out to need test
-code, the framework has failed its acceptance criterion (§12) and that is worth
-discovering on journey one rather than journey five.
-
----
+T7 ports these rather than reinventing them. Note the trap: `seed_actions.mts`
+already exists **twice** (`scripts/e2e/` and `apps/api/scripts/e2e/`). Adding a
+third copy in this repository is the failure this section exists to prevent.
+Where a script is usable as-is, invoke it; where only the data is wanted, move
+the data and leave the generator in signals-dpg.
 
 ## 6. Step framework
 
@@ -382,67 +607,92 @@ defineJourney({
   networks:   ['purple_dot', 'blue_dot'],
 
   steps: [
-    createProfile({ as: 'seeker' }),
-    waitUntilIngestDrained(),
+    createProfile({ as: 'seeker' }),      // live, not draft — see §5.5
+    waitUntilThisItemIndexed(),
     expectFoundInSearch(),
   ],
 });
 ```
 
-`waitUntilIngestDrained()` is the load-bearing piece, and the reason J2 is the
-right first journey. It polls with a deadline and never sleeps.
+### The awaiter
 
-Before `createProfile` runs, the awaiter records a baseline: the stream's
-last-generated id and the DLQ's length. Then it waits for all four conditions:
+The parent design's instruction is "poll with a deadline, never sleep". That is
+necessary and nowhere near sufficient here, because signals-search has a second
+ingestion path. `sweep()` indexes any `items` row missing from `item_search`
+every 60s straight from Postgres (§2.6). So an awaiter that waits for *the
+index to contain the item* proves the row reached Postgres and nothing more —
+the stream could be dead and J2 still goes green.
 
-1. The stream's last id has **advanced** past the baseline
-2. `XINFO GROUPS signals:item-events` — lag for group `signals-search` is zero
-   **and not null**
-3. `XPENDING` — no un-acknowledged entries
-4. `XLEN signals:item-events:dlq` — unchanged from the baseline
+Worse, the four stream-level conditions an earlier revision specified do not
+close it either, because none of them ties **this item** to **that stream
+entry**. `worker/process_event.ts:33` returns early — silently acking — when it
+cannot find the item row. Stream advanced, lag zero, XPENDING empty, DLQ
+unchanged, nothing indexed. The sweep then indexes it within 60s and the
+journey passes having verified the opposite of what it claims.
 
-The assertion then reads the `searchHits` projection through `POST /v1/search`.
+So the awaiter correlates, and the stack is configured to remove the backstop:
 
-Three of those four exist because the obvious two-condition version passes
-vacuously.
+1. **`SWEEP_INTERVAL_MS` is set far beyond the journey deadline** (§4), so the
+   sweep cannot mask a broken stream inside a run.
+2. Capture the **entry id** from `XRANGE` after `createProfile` returns —
+   `create_item.ts` awaits the publish before responding, so the entry exists by
+   then or never will.
+3. Wait until the group's last-delivered id has passed **that** entry, and
+   `XPENDING` shows it un-pending.
+4. Assert `item_search` carries a row for **that item key** whose `indexed_at`
+   moved — the index changed because of this event, not because of a sweep.
+5. `XLEN signals:item-events:dlq` unchanged from the baseline.
 
-**Condition 1** catches the dropped publish. `publishItemEvent` swallows `xadd`
-failures (§2.6), so a lost event leaves the stream untouched — lag is zero
-because nothing was ever added, drain "succeeds" instantly, and the run fails
-later at the search assertion with a misleading "not found". Requiring the
-stream to have advanced turns a silent drop into a precise failure at the step
-that caused it.
+Condition 2 also catches a dropped publish: `publishItemEvent` swallows `xadd`
+failures (§2.8), so with no correlation a lost event is indistinguishable from a
+fast one.
 
-**Condition 2's null clause** catches a subtler one. `XINFO GROUPS` reports
-`lag` as **null** when entries have been trimmed and the group's position can no
-longer be computed — and this stream is `MAXLEN ~` trimmed by every publish. A
-helper that treats a null lag as zero reports "drained" on every call, and every
-journey built on it passes without asserting anything. Null is treated as *not
-drained*; if it persists to the deadline the step fails naming the trim, because
-a permanently uncomputable lag is a harness bug, not a slow worker.
+### What each condition really catches
 
-**Condition 4** catches poison. A poisoned event is acknowledged on the main
-group and parked in the DLQ, so lag reaches zero and pending empties exactly as
-a successful ingest would. Without it, a poison event is indistinguishable from
-a slow one until the deadline expires, and what gets reported is a timeout
-rather than the parked entry. On DLQ growth the step fails immediately with the
-entry attached.
+The earlier revision credited the wrong condition for poison, which matters
+because it is the knob someone will tune.
 
-Conditions 1 and 2 are each covered by a negative control in §9 — a stub that
-never publishes, and a stream trimmed to force a null lag. Without those, the
-conditions are assertions about Redis that no test would notice going wrong.
+- **Schema-invalid** messages are parked and acked immediately
+  (`worker/main.ts:82-87`), so the DLQ check catches them at once.
+- **Processing failures** are left unacked and reach the DLQ only after
+  `INGEST_MAX_DELIVERIES` redeliveries (default 5), and redelivery runs through
+  `XAUTOCLAIM` gated on `PEL_MIN_IDLE_MS` (default 60_000) — **four minutes
+  minimum**. Within any sane deadline it is **`XPENDING`**, not the DLQ, that
+  catches these. §4 lowers `PEL_MIN_IDLE_MS` so the escalation path is
+  observable at all.
 
-Waits are concentrated in one small module. That is what makes this reviewable:
-a bare `sleep` in a diff can be rejected because the alternative already exists
-and is named.
+A note on the null-lag guard, which an earlier revision justified wrongly:
+`XINFO GROUPS` can report `lag` as null once trimming loses the group position,
+but `INGEST_STREAM_MAXLEN` is 100_000 and a hermetic run publishes a handful of
+events, so **the state is unreachable here**. The guard stays because it costs
+nothing and the constant could change; the claim that this stream is "trimmed by
+every publish" was false.
 
-With two networks, scheduling matters. Scenarios parallelize **by network** and
-serialize **within** one. The drain conditions are measured against a single
-shared consumer group, so two networks ingesting concurrently would each see the
-other's backlog and neither could tell drained from busy. Per-network
-serialization keeps each run's baseline meaningful.
+### Deadlines
 
----
+No deadline is pinned by the parent design, and its sample output shows 30s —
+which sits inside neither the 60s sweep regime nor the ~4 min DLQ regime.
+Deadlines are derived from the constants they race and named in one place, so
+changing `SWEEP_INTERVAL_MS` or `PEL_MIN_IDLE_MS` moves them together.
+
+### Scheduling
+
+Scenarios parallelize **by network** and serialize **within** one. Both networks
+share the single `signals-search` consumer group, so concurrent ingestion would
+leave each run reading the other's backlog, unable to tell drained from busy.
+Per-network serialization keeps each baseline meaningful.
+
+### Result-set assertions, not rank
+
+`db/search_query.ts:98-101` orders by vector distance with `LIMIT`/`OFFSET`.
+Real TEI (§4) gives meaningful ordering, but J2 asserts **set membership** with
+`limit` above the fixture count, or filters to isolate the item. A journey that
+depends on rank position starts failing as the corpus grows, for reasons
+unrelated to the ingest spine it is meant to test.
+
+Waits are concentrated in one module. That is what makes this reviewable: a bare
+`sleep` in a diff can be rejected because the alternative already exists and is
+named.
 
 ## 8. Output
 
@@ -486,13 +736,17 @@ not after it:
 
 1. **Harness unit tests** — fixture determinism, report rendering, the lint
    rules.
-2. **Negative controls** — four, each pinning one way the suite could go
+2. **Negative controls** — five, each pinning one way the suite could go
    vacuously green:
-   - the drain awaiter against a worker that never converges — must time out;
-   - the drain awaiter against a publisher that never publishes — must fail on
-     the stream-advance condition, not report "drained";
-   - the drain awaiter against a stream trimmed hard enough to force a null
-     `lag` — must fail naming the trim, not read null as zero;
+   - the awaiter against a worker whose consumer loop never converges — must
+     time out;
+   - **the awaiter against a worker with the consumer loop dead and the sweep
+     alive** — must fail, not pass on the backstop. This is the control for
+     §2.6, and the one the parent design had no reason to think of;
+   - the awaiter against a publisher that never publishes — must fail on
+     correlation, not report "drained";
+   - a processing failure — must be caught by `XPENDING`, and must reach the
+     DLQ once `PEL_MIN_IDLE_MS` elapses;
    - J2 against deliberately wrong expected values — must fail.
 3. **A `harness-selftest` CI job** — two canary scenarios, one built to pass and
    one built to fail, asserting the runner reported exactly one of each and
@@ -566,30 +820,54 @@ bluedots-e2e/
 
 ## 12. Work breakdown
 
-Twelve tickets, spine before breadth. Each becomes a GitHub issue in this
-repository once the implementation plan is approved, carrying enough context for
-a fresh reader.
+Fourteen tickets, spine before breadth. Each becomes a GitHub issue under epic
+`Blue-Dots-Economy/bluedots-e2e#1` once the implementation plan is approved.
+
+The sequence changed after review. T3 shrank — the stack is an overlay on
+`local-setup/docker-compose.yml`, not a new compose file — and three tickets
+split out of it, because "compose topology" was hiding a tools image, a set of
+auth prerequisites, and an empirical runner question.
 
 | # | Ticket | Proves | Depends on |
 |---|---|---|---|
 | T1 | Repo scaffold: pnpm, vitest, `pnpm journey` CLI, `--list` | Entry point works with zero containers | — |
-| T2 | Resolve phase: branch/tag → digests, per-service override | Mutable tags are pinned | T1 |
-| T3 | Compose: full stack + profiles; build keycloak and pgvector images | The stack boots | T1 |
-| T4 | Health and migration gating | `STACK_UNHEALTHY` is a real signal | T3 |
-| T5 | Seed: realm import, participant mint, API key via `seed_service_users.ts` | Real authorization, no test-only product code | T4, epic P0 |
-| T6 | Generated clients from the three published `openapi.json` | Typecheck as a second contract check | T1 |
-| T7 | Step framework: `defineJourney`, labels, lint guards | Scenario six is cheap | T6 |
-| T8 | Awaiters and drain detection (`XINFO`, `XPENDING`, DLQ) | No sleeps anywhere | T7 |
-| T9 | Canary scenarios, negative controls, `harness-selftest` as a per-PR check | The gate cannot go vacuously green | T8 |
-| T10 | J2 on purple_dot and blue_dot | One real journey passes, on two networks | T5, T9 |
-| T11 | Report renderers: `summary.json` → tiers 1/2/3 + triage bundle | Legible evidence | T10 |
-| T12 | CI workflow on RC tag | Bound to the release | T11 |
+| T2 | Resolve phase: branch/tag → digests, per-service override, source-SHA pinning for built images | Mutable tags are pinned (§4) | T1 |
+| T3 | Compose overlay on `local-setup/docker-compose.yml`; two-network directory; deadline-shaping env | The stack boots, both networks | T2 |
+| T4 | Tools image + `signals-bootstrap` gating | `item_search` exists; a real completion signal | T3 |
+| T5 | Realm import via aggregator's render script, `apply-user-profile.sh`, direct-grant enablement | Keycloak works at all (§2.5) | T4 |
+| T6 | Identities: realm role, aggregator org, API key via `seed_service_users.ts` | J2's caller can authenticate | T5, **epic P0** |
+| T7 | Generated clients from the three published `openapi.json`, fetched at the resolved digest | Typecheck as a second contract check | T2 |
+| T8 | Step framework: `defineJourney`, labels, lint guards | Scenario six is cheap | T7 |
+| T9 | Correlating awaiter (`XRANGE` id → group position → `item_search.indexed_at`) | Ingestion is actually verified (§7) | T8, T4 |
+| T10 | Canary scenarios + `harness-selftest` as a per-PR check | The runner reports honestly | T8 |
+| T11 | Negative controls, including sweep-alive/consumer-dead | The gate cannot go vacuously green | T9, T4 |
+| T12 | J2 on purple_dot and blue_dot | One real journey passes, two networks | T6, T11 |
+| T13 | Report renderers: `summary.json` → tiers 1/2/3 + triage bundle | Legible evidence | T9 |
+| T14 | CI workflow on RC tag | Bound to the release | T12, T13 |
 
-The parent design's cost-of-change table is the acceptance criterion for T7 and
-T8 together: a second journey from existing steps must cost **no TypeScript**,
-and a second network must cost **no test code**.
+Four sequencing corrections worth naming, since each was wrong in the previous
+revision:
 
----
+- **T7 depends on T2, not T1.** The three specs live in the service repos at
+  some revision. Vendoring them lets them drift — the same argument §4 makes
+  against baking schemas — so they are fetched at the resolved digest, which
+  means the resolver must exist first.
+- **T10 and T11 are separate tickets.** §10 claims `harness-selftest` needs no
+  service images and runs in seconds. True of the canaries, false of the drain
+  controls, which need Redis and a real worker. Splitting them keeps the
+  per-PR check fast and honest.
+- **T13 before T12, not after.** The triage bundle exists so "what state was
+  it in?" is answerable without a rerun. The first real journey is exactly
+  when that matters, so it ships with diagnostics rather than acquiring them
+  afterwards.
+- **T6 is its own ticket and blocks on epic P0.** The previous T5 bundled realm
+  mechanics with identity minting and named neither the API key nor its
+  upstream dependency, so J2 was not buildable from its stated dependencies.
+
+The parent design's cost-of-change table is the acceptance criterion for T8 and
+T9 together: a second journey from existing steps must cost **no TypeScript**,
+and blue_dot must cost **no test code** — which T12 tests directly by running
+both networks.
 
 ## 13. Relationship to epic #1
 
@@ -599,7 +877,7 @@ the deviation is recorded here rather than left for someone to trip over.
 
 | | Epic #1 | This spec | Why |
 |---|---|---|---|
-| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.4 keeps that visible. |
+| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.7 keeps that visible. |
 | First scenario | P2, onboarding → dashboard | J2, item → event → search hit | J2 exercises the asynchronous spine, which is where flake lives. A flaky suite gets disabled, so that risk is worth retiring first. |
 | Networks | purple + blue | purple + blue | Unchanged from the epic. |
 
@@ -620,18 +898,34 @@ is optional:
 
 ## 14. Open questions
 
-1. **Does a standard GitHub runner hold the stack?** J2's eight containers are
-   comfortable; the full fourteen on 16GB is unproven. Settled empirically at
-   T3, escape hatch is a larger runner. *(provisional)*
-2. **Are aggregator-dpg, signals-search and notification-service images
-   published on the same scheme as signals-dpg?** signals-dpg is confirmed
-   (`api`, `ui`). The other three have Dockerfiles and share the RC tag, but
-   their build matrices have not been read. Resolve at T2. *(provisional)*
-3. **Should signals-dpg's integration suites leave the `sonar` job?** They run
-   under `continue-on-error` today, making regressions advisory. Cheap and
+1. **Does a standard GitHub runner hold the stack?** J2 boots ~11 containers,
+   and real TEI alone wants 3-8 GB (§4). The parent design assumed a stub
+   precisely to avoid this. Settled empirically at T3; if the runner cannot
+   hold TEI, the fallback is a stub embedder and §4's argument for real vectors
+   loses. *(provisional)*
+2. **`bluedots-schemas` versus `examples/schemas`.** The two purple_dot configs
+   have already drifted (§4). The harness pins `bluedots-schemas`, so the local
+   stack no longer matches what signals-dpg's own compose serves. Which is
+   authoritative is a question for the service owners, not this suite.
+3. **Which search path should a later journey assert?** J2 uses `/v1/search`
+   directly, which no end user reaches. The path users take — signals-dpg's
+   `discover` BFF — **fails open** to `native_fallback` with signals-search
+   absent (§2.7). A journey that asserts `meta.source !== 'native_fallback'`
+   would cover the most vacuous-pass-shaped route in the fleet, and nothing
+   currently does.
+4. **notification-service has no `openapi.json` and publishes no `:develop`
+   tag.** Its build workflow triggers on `main` and `feature` only, so §3's
+   "local runs default to `:develop`" becomes undeliverable the moment J3
+   lands. Epic #1's P0 covers the spec; the tag is unaddressed.
+5. **Apple Silicon.** signals-search and TEI are amd64-only, so local runs use
+   emulation (§4). `SIGNALS_SEARCH_IMAGE` + `SEARCH_PLATFORM` allow a native
+   build, but nothing produces one in CI. A suite that is slow for whoever is
+   debugging it gets run only in CI, then ignored there.
+6. **Should signals-dpg's integration suites leave the `sonar` job?** They run
+   under `continue-on-error` today, so regressions are advisory. Cheap and
    adjacent, but a separate decision with its own CI-time cost.
-4. **When does the contract layer land?** It is a few days' work in the four
-   service repositories and retires a recurring production failure class
+7. **When does the contract layer land?** A few days' work across the four
+   service repositories, retiring a recurring production failure class
    (signals-dpg #103, #104, #112, #115, #122, tracked in #124; aggregator-dpg
    #399). Epic #1 recommends it first and this spec starts elsewhere (§13), so
-   it is now unscheduled rather than merely later. It should not stay that way.
+   it is now unscheduled rather than merely later.
