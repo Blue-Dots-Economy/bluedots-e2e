@@ -43,13 +43,25 @@ export async function createKcadmAdmin(
         KCADM, 'create', 'users', '-r', realm,
         '-s', `username=${user.username}`,
         '-s', 'enabled=true',
-        ...(user.email ? ['-s', `email=${user.email}`, '-s', 'emailVerified=true'] : []),
+        // Explicitly nothing pending. A user can pick up required actions
+        // from realm defaults or a user profile that has not settled, and
+        // Keycloak then refuses the password grant with
+        // `invalid_grant: Account is not fully set up` -- intermittently,
+        // which is worse than never.
+        '-s', 'requiredActions=[]',
+        '-s', 'emailVerified=true',
+        ...(user.email ? ['-s', `email=${user.email}`] : []),
         '-i',
       ]);
       return out.trim();
     },
 
     async setPassword(realm, userId, password) {
+      // No --temporary. kcadm's -t is a boolean SWITCH, not a flag taking
+      // a value -- `-t false` fails with "Unmatched argument ... 'false'".
+      // Omitting it gives a permanent password, which is what is wanted: a
+      // temporary one is itself a required action (UPDATE_PASSWORD) and
+      // would reintroduce `Account is not fully set up` by another route.
       await exec('keycloak', [
         KCADM, 'set-password', '-r', realm,
         '--userid', userId, '--new-password', password,

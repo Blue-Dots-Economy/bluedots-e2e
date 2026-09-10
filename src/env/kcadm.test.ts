@@ -59,6 +59,26 @@ describe('createKcadmAdmin user operations', () => {
     expect(await admin.createUser('bluedots', { username: 'j2' })).toBe('user-uuid-123');
   });
 
+  test('creates an account with nothing pending, so a password grant works', async () => {
+    // Keycloak refuses a grant with `invalid_grant: Account is not fully
+    // set up` when the user carries required actions. New users can pick
+    // them up from realm defaults or an unsettled user profile, which made
+    // this intermittent -- so the harness states what it wants rather than
+    // relying on the realm's mood.
+    const calls: string[][] = [];
+    const exec = async (_s: string, cmd: readonly string[]) => {
+      calls.push([...cmd]);
+      return 'id\n';
+    };
+    const admin = await createKcadmAdmin(exec, { username: 'a', password: 'b' });
+
+    await admin.createUser('bluedots', { username: 'j2' });
+
+    const create = calls.at(-1)!.join(' ');
+    expect(create).toContain('requiredActions=[]');
+    expect(create).toContain('emailVerified=true');
+  });
+
   test('asks kcadm for just the id, not a success sentence', async () => {
     const calls: string[][] = [];
     const exec = async (_s: string, cmd: readonly string[]) => {
@@ -70,6 +90,25 @@ describe('createKcadmAdmin user operations', () => {
     await admin.createUser('bluedots', { username: 'j2' });
 
     expect(calls.at(-1)).toContain('-i');
+  });
+
+  test('sets a permanent password, since a temporary one is itself an action', async () => {
+    // --temporary/-t is a boolean SWITCH: passing it a value fails with
+    // "Unmatched argument ... 'false'". Omitting it is what makes the
+    // password permanent, and a temporary one would be an UPDATE_PASSWORD
+    // required action -- the same refusal by another route.
+    const calls: string[][] = [];
+    const exec = async (_s: string, cmd: readonly string[]) => {
+      calls.push([...cmd]);
+      return '';
+    };
+    const admin = await createKcadmAdmin(exec, { username: 'a', password: 'b' });
+
+    await admin.setPassword('bluedots', 'uid', 'pw');
+
+    const cmd = calls.at(-1)!;
+    expect(cmd).not.toContain('-t');
+    expect(cmd).not.toContain('--temporary');
   });
 
   test('assigns a realm role by name', async () => {

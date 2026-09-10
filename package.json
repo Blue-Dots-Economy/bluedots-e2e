@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "clients:generate": "tsx scripts/generate_clients.ts",
-    "clients:check": "tsx scripts/generate_clients.ts && git diff --exit-code src/clients/generated"
+    "clients:check": "tsx scripts/generate_clients.ts && git diff --exit-code src/clients/generated",
+    "report": "tsx scripts/render_report.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
