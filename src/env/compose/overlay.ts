@@ -50,6 +50,16 @@ ${ephemeral(8080)}
 
   mailpit:
 ${ephemeral(8025)}
+    # The base healthcheck uses /dev/tcp/127.0.0.1/8025, a bash builtin. The
+    # mailpit image ships sh and no bash, so CMD-SHELL can never satisfy it
+    # and the container sits permanently unhealthy -- invisible until
+    # something waits on health, which up --wait does. wget is present in
+    # the image and answers the same question.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/readyz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   # Built from local-setup/infra/signals-bootstrap.Dockerfile by the base
   # compose. Naming an image here would make compose try to pull it first.

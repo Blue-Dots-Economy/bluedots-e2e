@@ -9,6 +9,7 @@
   "scripts": {
     "journey": "tsx src/cli/main.ts",
     "test": "vitest run",
+    "test:stack": "vitest run --config vitest.stack.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json"

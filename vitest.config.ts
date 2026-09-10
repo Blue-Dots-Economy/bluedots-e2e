@@ -7,8 +7,10 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
-    // Journeys boot a stack and must never run under the unit suite.
-    exclude: ['journeys/**', 'node_modules/**', 'dist/**'],
+    // *.stack.test.ts boots real containers and takes minutes. Excluded from
+    // the fast unit suite so `pnpm test` stays a per-PR check; run it with
+    // `pnpm test:stack`.
+    exclude: ['**/*.stack.test.ts'],
     environment: 'node',
   },
 });

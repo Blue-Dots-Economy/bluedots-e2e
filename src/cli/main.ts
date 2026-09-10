@@ -8,6 +8,13 @@ import { schemasRoot } from '../config/paths.js';
 import { imageRef, resolveDigests, resolveTags } from '../images/images.js';
 import { dockerInspector } from '../images/docker_inspector.js';
 import { SERVICES } from './args.js';
+import { ComposeProvider } from '../env/compose/compose_provider.js';
+import { assertBindSources } from '../env/compose/overlay.js';
+import { dockerRun } from '../env/compose/docker_runner.js';
+import { signalsDpgRoot } from '../config/paths.js';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 async function promptForTarget(targets: readonly { id: string }[]): Promise<string> {
   const rl = createInterface({ input: stdin, output: stdout });
@@ -76,7 +83,39 @@ async function main(argv: string[]): Promise<number> {
     stdout.write(`  ${service.padEnd(22)} ${tags[service].padEnd(16)} ${digests[service]}\n`);
   }
 
-  // Phases 2-5 arrive with #4 onward.
+  // Phase 2 — up. Owned by the environment provider, so phases 3-5 never
+  // learn whether a stack was booted here or already existed elsewhere.
+  const provider = new ComposeProvider(target, {
+    run: dockerRun,
+    writeFile: async (path, contents) => writeFile(path, contents),
+    assertBindSources,
+    digests,
+    baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
+    runDir: await mkdtemp(join(tmpdir(), 'journey-')),
+  });
+
+  stdout.write('\nbringing the stack up…\n');
+  const ctx = await provider.up();
+
+  stdout.write(
+    [
+      '',
+      'stack ready',
+      `  signals api     ${ctx.endpoints.signalsApi}`,
+      `  search api      ${ctx.endpoints.searchApi}`,
+      `  keycloak        ${ctx.endpoints.keycloak}`,
+      `  capabilities    ${ctx.capabilities.join(', ')}`,
+      '',
+    ].join('\n'),
+  );
+
+  // Phases 3-5 arrive with #6 onward.
+  if (!args.keepStack) {
+    stdout.write('tearing the stack down (pass --keep-stack to leave it up)\n');
+    await provider.down();
+  } else {
+    stdout.write('stack left running (--keep-stack)\n');
+  }
   return 0;
 }
 

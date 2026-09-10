@@ -66,3 +66,17 @@ describe('assertBindSources', () => {
     await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(/not a file/);
   });
 });
+
+describe('mailpit healthcheck', () => {
+  test('replaces the base healthcheck, which can never pass', () => {
+    // The base uses /dev/tcp/127.0.0.1/8025 -- a bash builtin. The mailpit
+    // image has sh but no bash, so CMD-SHELL can never satisfy it and the
+    // container sits permanently unhealthy. Invisible until something waits
+    // on health, which `up --wait` does.
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).toContain('mailpit:');
+    expect(yaml).toContain('healthcheck:');
+    expect(yaml).toContain('wget');
+  });
+});
