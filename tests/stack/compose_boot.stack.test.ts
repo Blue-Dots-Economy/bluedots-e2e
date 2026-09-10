@@ -14,6 +14,8 @@ import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/seed.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { obtainUserToken } from '../../src/seed/token.js';
+import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
+import { captureBaseline } from '../../src/awaiters/ingest.js';
 
 
 /**
@@ -202,6 +204,35 @@ describe('compose provider boots a usable stack', () => {
     // Without one, a self-created profile is classified unowned and lands in
     // draft, and search only returns live items.
     expect(seeded.aggregatorOrgId).toMatch(/^org_/);
+  });
+
+  test('the ingest probe reads the real stream and read model', async () => {
+    // The awaiter is only as good as its readings. This checks each one
+    // returns something meaningful against a live stack rather than
+    // silently defaulting -- a probe that always answers "0-0" and null
+    // would make every correlation check pass or fail for the wrong reason.
+    const probe = createIngestProbe({
+      redisUrl: ctx.endpoints.redisUrl,
+      postgresUrl: ctx.endpoints.postgresUrl,
+    });
+    try {
+      const baseline = await captureBaseline(probe);
+
+      expect(baseline.lastStreamId).toMatch(/^\d+-\d+$/);
+      expect(baseline.dlqLength).toBe(0);
+      // The worker created the group at boot, so this must be readable.
+      expect(await probe.groupLastDeliveredId()).not.toBeNull();
+      expect(await probe.pendingCount()).toBe(0);
+      // An item that does not exist must read as absent, not as an error.
+      expect(
+        await probe.indexedAt({
+          network: 'purple_dot', domain: 'seeker', type: 'profile',
+          id: '00000000-0000-0000-0000-000000000000',
+        }),
+      ).toBeNull();
+    } finally {
+      await probe.close();
+    }
   });
 
   test('reports the capabilities a journey checks against', () => {
