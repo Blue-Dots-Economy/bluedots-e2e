@@ -282,6 +282,7 @@ path is the CI path is a suite nobody reproduces.
 pnpm journey --dot blue_dot --instance ka-dhwd   # a deployed instance
 pnpm journey --dot purple_dot                    # a dot with no instances
 pnpm journey --dot blue_dot --instance up-gzb    # the next run, after teardown
+pnpm journey --env cluster-dev --dot blue_dot --instance ka-dhwd   # no stack booted
 pnpm journey --images-from-tag 202608-s2-rc1     # what CI runs
 pnpm journey --branch feat/x                     # all four services on that branch tag
 pnpm journey --branch signals-dpg=feat/x         # one service moved, rest on develop
@@ -325,9 +326,14 @@ Five phases, each naming its own failure so a red run says *where* it broke:
 1 resolve   branch|tag → 4 image digests          RESOLVE_TIMEOUT / IMAGE_NOT_FOUND
 2 up        compose up; health + migrations       STACK_UNHEALTHY
 3 seed      realm identities, orgs, service accts SEED_FAILED
-4 run       scenarios × networks under vitest     <scenario> FAILED
+4 run       journeys for this target under vitest <scenario> FAILED
 5 report    three artifacts + triage bundle       (never fails)
 ```
+
+Phases 1 and 2 belong to the **environment provider** (§4). With
+`--env cluster-*` they resolve nothing and boot nothing; the endpoints come
+from configuration and the run starts at phase 3. Phases 3 to 5 are identical
+either way, and that is the property worth protecting.
 
 Phase 5 runs on success and failure alike. That is structural, not a
 convenience: a gate that explains nothing when red is a gate that gets disabled.
@@ -494,6 +500,78 @@ signals-ui is not needed — J2 asserts over HTTP. Around eleven containers.
 Deferred and defined, for later journeys: aggregator-dpg api/web/worker, MinIO
 and its init sidecar, notification-service and its worker, its separate Redis,
 and the SMS provider stub.
+
+### Where the services live is a provider, not an assumption
+
+The compose stack is one way to obtain a running deployment. It is the one this
+spec builds, because it is hermetic and reproducible. It should not be the only
+one the harness can drive: if the local stack turns out to be the wrong bet, or
+a release needs verifying against a real test cluster, that must be a
+configuration change and a small provider, never a rewrite of the journeys.
+
+So phases 1-2 sit behind an **environment provider** and phases 3-5 do not know
+which one ran:
+
+| Provider | Owns | Used for |
+|---|---|---|
+| `compose` | resolve digests, `up`, health/migration gating, teardown | hermetic per-run verification (this spec) |
+| `external` | nothing — endpoints are supplied | an existing test cluster or a long-lived environment |
+
+The `external` provider is deliberately almost empty: it validates that the
+declared endpoints answer and hands the same context object to phase 3. That is
+the whole point — if it needs more than that, something below it was hardcoded.
+
+**Nothing about a location, a scheme, a port or a credential is written in
+code.** A target environment is a config document:
+
+```
+scheme + host + port          per service (signals api, search api, worker health)
+postgres DSN, redis URL       see the capability note below
+keycloak base url, internal url, realm, client id + secret
+api key                       supplied, or minted (compose) — never assumed
+schema source                 local file path | registry url
+deadlines                     derived from the environment's own constants
+disposable                    true | false
+```
+
+The compose provider *generates* that document; the external provider *reads*
+one. Journeys and steps consume it and cannot tell the difference. `http`
+versus `https` is one field, not a branch in a client.
+
+### What a cluster cannot give you, and what to do about it
+
+The J2 awaiter reads the Redis stream and queries `item_search` directly (§7).
+A managed cluster exposes neither. Port-forwarding both, or running the harness
+as an in-cluster job, is possible but is a real decision with its own access
+and safety questions — not something to assume.
+
+So an environment **declares its capabilities**, and a journey **declares what
+it needs**:
+
+```
+capabilities: [http, redis, postgres]     # compose
+capabilities: [http]                       # a typical cluster
+```
+
+A journey requiring `redis` cannot run in an `http`-only environment. It is
+then reported as **NOT COVERED for that environment**, with the reason, rather
+than being silently downgraded to a weaker assertion that passes. This is the
+same rule as everywhere else in the design: a green result must mean what it
+says, and an honest gap beats a comfortable one.
+
+That is also the sharpest argument for the compose stack. Without direct Redis
+and Postgres, J2 degrades to "the item became findable", which the
+reconciliation sweep (§2.6) can satisfy on its own. A cluster run of J2 would
+be exactly the vacuous pass this suite exists to prevent.
+
+### Seeding a shared environment is not the same act
+
+The compose provider seeds a stack that is destroyed minutes later. Seeding a
+shared cluster creates real identities and real items in a database someone
+else is using. The harness refuses destructive seeding unless the environment
+declares `disposable: true`, and the report prints which environment ran and
+whether it was disposable — because "the tests passed" means something
+different in each case.
 
 ## 5. Seeding
 
@@ -918,7 +996,7 @@ bluedots-e2e/
 
 ## 12. Work breakdown
 
-Fourteen tickets, spine before breadth. Each becomes a GitHub issue under epic
+Fifteen tickets, spine before breadth. Each becomes a GitHub issue under epic
 `Blue-Dots-Economy/bluedots-e2e#1` once the implementation plan is approved.
 
 The sequence changed after review. T3 shrank — the stack is an overlay on
@@ -930,7 +1008,7 @@ auth prerequisites, and an empirical runner question.
 |---|---|---|---|
 | T1 | Repo scaffold: pnpm, vitest, `pnpm journey` CLI, `--list`, `(dot, instance)` resolution and prompting | Entry point works with zero containers; `--list` shows real targets from the pinned checkout | — |
 | T2 | Resolve phase: branch/tag → digests, per-service override, source-SHA pinning for built images | Mutable tags are pinned (§4) | T1 |
-| T3 | Compose overlay on `local-setup/docker-compose.yml`; one project per target; deadline-shaping env | A stack boots for a given `(dot, instance)` | T2 |
+| T3 | Environment provider interface + `compose` provider: overlay on `local-setup/docker-compose.yml`, one project per target, deadline-shaping env | A stack boots for a given `(dot, instance)`; phases 3-5 receive a provider-agnostic context | T2 |
 | T4 | Tools image + `signals-bootstrap` gating | `item_search` exists; a real completion signal | T3 |
 | T5 | Realm import via aggregator's render script, `apply-user-profile.sh`, direct-grant enablement | Keycloak works at all (§2.5) | T4 |
 | T6 | Identities: realm role, aggregator org, API key via `seed_service_users.ts` | J2's caller can authenticate | T5, **epic P0** |
@@ -942,6 +1020,7 @@ auth prerequisites, and an empirical runner question.
 | T12 | J2, run against `purple_dot` and then `blue_dot/ka-dhwd` | One real journey passes on two targets, one stack at a time | T6, T11 |
 | T13 | Report renderers: per-run tiers 1/2, tier 3 aggregated across a tag's runs, triage bundle | Legible evidence | T9 |
 | T14 | CI workflow on RC tag: one job per target, sequential, then the aggregated sheet | Bound to the release | T12, T13 |
+| T15 | `external` provider + capability gating, so a test cluster is a config file | A cluster run executes the journeys it can and reports the rest as NOT COVERED | T12 |
 
 Four sequencing corrections worth naming, since each was wrong in the previous
 revision:
@@ -977,7 +1056,7 @@ the deviation is recorded here rather than left for someone to trip over.
 
 | | Epic #1 | This spec | Why |
 |---|---|---|---|
-| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.8 keeps that visible. |
+| First lane | P1, contract | Journey layer | The repository exists and the journey layer is what it is for. The contract lane is not cancelled — it is unscheduled, and §14.9 keeps that visible. |
 | First scenario | P2, onboarding → dashboard | J2, item → event → search hit | J2 exercises the asynchronous spine, which is where flake lives. A flaky suite gets disabled, so that risk is worth retiring first. |
 | Networks | purple + blue | purple + blue | Unchanged from the epic. |
 
@@ -1023,17 +1102,24 @@ is optional:
    emulation (§4). `SIGNALS_SEARCH_IMAGE` + `SEARCH_PLATFORM` allow a native
    build, but nothing produces one in CI. A suite that is slow for whoever is
    debugging it gets run only in CI, then ignored there.
-6. **What do `consent.json` and `brand.json` do to a journey?** The harness
+6. **Is the compose stack the right bet at all?** This spec builds it because
+   it is hermetic and because J2's assertions need Redis and Postgres access a
+   cluster will not give (§4). If it proves too heavy or too slow, the
+   `external` provider (T15) points the same journeys at a test cluster — but
+   the journeys that survive that move are the ones asserting only over HTTP,
+   and J2 is not one of them. Deciding this after T12 rather than before is
+   deliberate: one working journey is what makes the comparison real.
+7. **What do `consent.json` and `brand.json` do to a journey?** The harness
    resolves both per target (§4), but J2 asserts on neither. Consent is
    load-bearing — §5.5 needs it for the item to reach `live` — so the consent
    document a target ships is already in the blast radius even though no
    assertion reads it. `ka-dhwd` and `up-gzb` differ *only* in brand and
    consent, so a journey that covers them is the one that would justify running
    both.
-7. **Should signals-dpg's integration suites leave the `sonar` job?** They run
+8. **Should signals-dpg's integration suites leave the `sonar` job?** They run
    under `continue-on-error` today, so regressions are advisory. Cheap and
    adjacent, but a separate decision with its own CI-time cost.
-8. **When does the contract layer land?** A few days' work across the four
+9. **When does the contract layer land?** A few days' work across the four
    service repositories, retiring a recurring production failure class
    (signals-dpg #103, #104, #112, #115, #122, tracked in #124; aggregator-dpg
    #399). Epic #1 recommends it first and this spec starts elsewhere (§13), so
