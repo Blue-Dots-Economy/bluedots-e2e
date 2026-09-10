@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderOverlay } from './overlay.js';
+import { assertBindSources, renderOverlay } from './overlay.js';
 
 const TARGET = {
   id: 'purple_dot', dot: 'purple_dot', instance: null,
@@ -45,5 +45,24 @@ describe('renderOverlay', () => {
 
     expect(yaml).toContain('signals-dpg/api@sha256:a');
     expect(yaml).toContain('signals-search@sha256:b');
+  });
+});
+
+describe('assertBindSources', () => {
+  test('accepts a path that is a real file', async () => {
+    await expect(assertBindSources([import.meta.filename])).resolves.toBeUndefined();
+  });
+
+  test('refuses a missing path rather than letting Docker invent a directory', async () => {
+    // Docker CREATES a missing bind source as an empty directory. The
+    // container then reads a directory and dies with EISDIR, far from the
+    // typo that caused it.
+    await expect(assertBindSources(['/no/such/network.json'])).rejects.toThrow(
+      /\/no\/such\/network\.json/,
+    );
+  });
+
+  test('refuses a directory where a file is required', async () => {
+    await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(/not a file/);
   });
 });

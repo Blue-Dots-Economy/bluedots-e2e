@@ -59,3 +59,16 @@ describe('resolveTarget', () => {
     await expect(resolveTarget(SCHEMAS, 'blue_dot', 'nope')).rejects.toThrow(/nope/);
   });
 });
+
+describe('path resolution', () => {
+  test('returns absolute paths even when given a relative schemas root', async () => {
+    // Compose resolves relative bind sources against the project directory,
+    // which is signals-dpg's local-setup, not this repo. A relative path here
+    // silently mounts a nonexistent location -- Docker CREATES it as an empty
+    // directory, and the service dies with EISDIR at runtime rather than
+    // failing with a missing-file error.
+    const t = await resolveTarget('tests/fixtures/schemas', 'purple_dot', null);
+
+    expect(t.networkConfigPath.startsWith('/')).toBe(true);
+  });
+});

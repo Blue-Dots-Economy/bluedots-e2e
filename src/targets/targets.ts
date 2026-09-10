@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 /**
  * A target is a (dot, instance) pair — the unit a run tests.
@@ -97,10 +97,16 @@ async function firstExisting(...paths: string[]): Promise<string | null> {
 }
 
 export async function resolveTarget(
-  schemasRoot: string,
+  rawSchemasRoot: string,
   dot: string,
   instance: string | null,
 ): Promise<ResolvedTarget> {
+  // Always absolute. These paths become compose bind sources, and compose
+  // resolves a relative source against the PROJECT directory -- signals-dpg's
+  // local-setup, not this repo. Worse, Docker creates a missing bind source
+  // as an empty directory instead of erroring, so a relative path here
+  // surfaces much later as EISDIR inside a container.
+  const schemasRoot = isAbsolute(rawSchemasRoot) ? rawSchemasRoot : resolve(rawSchemasRoot);
   const available = await listTargets(schemasRoot);
   const id = instance ? `${dot}/${instance}` : dot;
   const match = available.find((t) => t.id === id);

@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import type { ResolvedTarget } from '../../targets/targets.js';
 
 /**
@@ -89,4 +90,25 @@ ${searchEnv}
     volumes:
       - ${networkMount}
 `;
+}
+
+/**
+ * Fail before boot if a bind source is missing or is not a file.
+ *
+ * Docker creates a missing bind source as an empty DIRECTORY rather than
+ * erroring, so the mistake surfaces much later as an EISDIR crash inside a
+ * container, with nothing pointing back at the path that was wrong.
+ */
+export async function assertBindSources(paths: readonly string[]): Promise<void> {
+  for (const path of paths) {
+    let stats;
+    try {
+      stats = await stat(path);
+    } catch {
+      throw new Error(`Bind source does not exist: ${path}`);
+    }
+    if (!stats.isFile()) {
+      throw new Error(`Bind source is not a file: ${path}`);
+    }
+  }
 }
