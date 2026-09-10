@@ -8,6 +8,13 @@ import type { KeycloakAdmin } from '../env/keycloak_setup.js';
  * rejected on every human-path call with a 403 that looks like an
  * authorization bug rather than a missing grant.
  *
+ * An email is always supplied, even though the caller may not care about
+ * one: the realm's user profile marks email required for role `user`, so a
+ * user without one counts as "not fully set up" and Keycloak refuses the
+ * password grant with `invalid_grant`. apply-user-profile.sh relaxes that
+ * requirement, which made the failure depend on whether the fixup had
+ * settled -- a race rather than a coin flip.
+ *
  * Nothing here is test-only product code: the user is created through
  * Keycloak's own Admin API, and the service then performs its genuine
  * authorization check against the resulting token.
@@ -19,7 +26,7 @@ export async function mintParticipant(
 ): Promise<{ userId: string }> {
   const userId = await admin.createUser(realm, {
     username: spec.username,
-    email: spec.email,
+    email: spec.email ?? `${spec.username}@journey.local`,
   });
   await admin.setPassword(realm, userId, spec.password);
   await admin.addRealmRole(realm, userId, spec.role);
