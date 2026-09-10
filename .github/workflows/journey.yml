@@ -28,6 +28,17 @@ jobs:
         target: [purple_dot, blue_dot/ka-dhwd]
     steps:
       - uses: actions/checkout@v4
+
+      # Same reason as ci.yml: the workflow reaches main before the harness.
+      - id: harness
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The journey harness is not on this ref yet. Merge the harness before running the journey suite."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
