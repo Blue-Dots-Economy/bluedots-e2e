@@ -50,6 +50,15 @@ export async function createKcadmAdmin(
         // which is worse than never.
         '-s', 'requiredActions=[]',
         '-s', 'emailVerified=true',
+        // firstName/lastName are not decoration. Keycloak evaluates
+        // VERIFY_PROFILE at AUTHENTICATION time rather than storing it on
+        // the user, so a profile missing them fails the password grant with
+        // `invalid_grant: Account is not fully set up` while the user record
+        // still reads requiredActions: [] and looks perfectly healthy.
+        // Verified directly: adding these two fields turns that exact
+        // failure into a token.
+        '-s', `firstName=${user.firstName ?? 'Journey'}`,
+        '-s', `lastName=${user.lastName ?? 'Participant'}`,
         ...(user.email ? ['-s', `email=${user.email}`] : []),
         '-i',
       ]);

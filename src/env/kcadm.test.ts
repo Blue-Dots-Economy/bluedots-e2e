@@ -77,6 +77,10 @@ describe('createKcadmAdmin user operations', () => {
     const create = calls.at(-1)!.join(' ');
     expect(create).toContain('requiredActions=[]');
     expect(create).toContain('emailVerified=true');
+    // VERIFY_PROFILE is evaluated at authentication time, not stored, so a
+    // user missing these fails the grant while its record looks healthy.
+    expect(create).toContain('firstName=');
+    expect(create).toContain('lastName=');
   });
 
   test('asks kcadm for just the id, not a success sentence', async () => {
