@@ -4,6 +4,10 @@ import type { ResolvedTarget } from '../../targets/targets.js';
 /**
  * The overlay layered on top of Signals-DPG/local-setup/docker-compose.yml.
  *
+ * NOTE: the YAML below lives inside a template literal, so a backtick in a
+ * comment opens a nested expression and breaks the parse with a message
+ * that points at the wrong token. Write command names bare.
+ *
  * That file is the authoritative local stack and already carries postgres,
  * redis, stock Keycloak with its mounts, the user-profile fixup, mailpit, the
  * bootstrap tools one-shot, signals-api, TEI and signals-search api+worker.
@@ -20,7 +24,13 @@ export function renderOverlay(opts: {
   realmDir?: string;
 }): string {
   const { target, digests, timing, aggregatorRoot, realmDir } = opts;
-  const networkMount = `${target.networkConfigPath}:/networks/network.json:ro`;
+  // Mount the target DIRECTORY, not the single network.json.
+  // loadConsentConfigs reads consent.json from dirname(NETWORK_CONFIG_LOCAL_FILE),
+  // and without it resolveConsentVersion returns null, consent is skipped
+  // silently ("category not configured -- do not fail onboarding"), and the
+  // profile stays draft: invisible to search, with a 200 on the way in.
+  const targetDir = target.networkConfigPath.replace(/\/[^/]+$/, '');
+  const networkMount = `${targetDir}:/networks:ro`;
 
   const searchEnv = [
     `      NETWORK_CONFIG_PATH: /networks/network.json`,
@@ -130,6 +140,17 @@ ${unnamed}
     build: !reset null
 ${unnamed}
 ${ephemeral(2742)}
+    # The image ships --interval=30s --start-period=10s --retries=3. Booting
+    # alongside Keycloak and an emulated TEI, the API misses that start
+    # period and the 30s interval then makes recovery slow enough for
+    # up --wait to give up on a service that is merely slow. Poll more
+    # often over a longer window: converges quickly, hides nothing.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:2742/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      start_period: 120s
+      retries: 40
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json

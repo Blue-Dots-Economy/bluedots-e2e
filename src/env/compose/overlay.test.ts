@@ -174,3 +174,35 @@ describe('container naming', () => {
     }
   });
 });
+
+describe('healthcheck budget', () => {
+  test('gives signals-api a boot budget suited to a loaded stack', () => {
+    // The image ships --interval=30s --start-period=10s --retries=3. On a
+    // machine also booting Keycloak and an emulated TEI, the API misses the
+    // 10s start period and the 30s interval makes recovery slow enough for
+    // `up --wait` to give up -- reporting unhealthy for a service that is
+    // merely slow. Polling more often over a longer window converges fast
+    // without hiding a genuine failure.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/agg' });
+
+    expect(yaml).toContain('start_period: 120s');
+    expect(yaml).toContain('interval: 3s');
+  });
+});
+
+describe('network config mount', () => {
+  test('mounts the target directory, not just network.json', () => {
+    // loadConsentConfigs reads consent.json from dirname(network config).
+    // Mounting the single file leaves that directory empty, so
+    // resolveConsentVersion returns null and consent is skipped SILENTLY --
+    // "category not configured, do not fail onboarding" -- and the profile
+    // stays draft, invisible to search, with a 200 on the way in.
+    const yaml = renderOverlay({
+      ...OPTS,
+      target: { ...TARGET, networkConfigPath: '/schemas/purple_dot/network.json' },
+    });
+
+    expect(yaml).toContain('/schemas/purple_dot:/networks:ro');
+    expect(yaml).not.toContain('/networks/network.json:ro');
+  });
+});
