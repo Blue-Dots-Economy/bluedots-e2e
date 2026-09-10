@@ -206,3 +206,46 @@ describe('network config mount', () => {
     expect(yaml).not.toContain('/networks/network.json:ro');
   });
 });
+
+describe('search network config mount', () => {
+  test('replaces the base network mount rather than appending to it', () => {
+    // The base compose mounts examples/schemas/<net>/network.json as a FILE
+    // at /networks/network.json for the search services. Compose appends
+    // volume lists, so without !override the base's blue_dot file wins over
+    // the target directory and search answers
+    // `404 UNSERVED_DOMAIN: purple_dot/seeker not served`.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/agg' });
+
+    const searchBlocks = yaml.split('signals-search-').slice(1);
+    expect(searchBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const block of searchBlocks) {
+      expect(block).toContain('volumes: !override');
+    }
+  });
+});
+
+describe('search env overrides', () => {
+  test('lets a control break ingestion deliberately', () => {
+    // The negative controls need to disable the consumer while leaving the
+    // sweep running, which is only meaningful if it can be configured.
+    const yaml = renderOverlay({
+      ...OPTS,
+      searchOverrides: { INGEST_CONSUMER_GROUP: 'decoy', SWEEP_INTERVAL_MS: '2000' },
+    });
+
+    expect(yaml).toContain('INGEST_CONSUMER_GROUP: "decoy"');
+    expect(yaml).toContain('SWEEP_INTERVAL_MS: "2000"');
+  });
+});
+
+describe('search env key uniqueness', () => {
+  test('an override replaces a timing key rather than duplicating it', () => {
+    // Duplicate mapping keys are rejected by strict YAML with only
+    // "construct errors" to go on.
+    const yaml = renderOverlay({ ...OPTS, searchOverrides: { SWEEP_INTERVAL_MS: '2000' } });
+
+    const block = yaml.slice(yaml.indexOf('signals-search-api'), yaml.indexOf('signals-search-worker'));
+    expect(block.match(/SWEEP_INTERVAL_MS/g)).toHaveLength(1);
+    expect(block).toContain('SWEEP_INTERVAL_MS: "2000"');
+  });
+});

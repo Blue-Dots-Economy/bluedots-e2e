@@ -22,8 +22,15 @@ export function renderOverlay(opts: {
   aggregatorRoot?: string;
   /** Directory holding the prepared realm export (see prepareRealm). */
   realmDir?: string;
+  /**
+   * Extra env for the search services. Exists for the negative controls,
+   * which need to break ingestion deliberately -- e.g. pointing the worker
+   * at a decoy consumer group so the sweep is the only path left.
+   */
+  searchOverrides?: Record<string, string>;
 }): string {
   const { target, digests, timing, aggregatorRoot, realmDir } = opts;
+
   // Mount the target DIRECTORY, not the single network.json.
   // loadConsentConfigs reads consent.json from dirname(NETWORK_CONFIG_LOCAL_FILE),
   // and without it resolveConsentVersion returns null, consent is skipped
@@ -32,12 +39,19 @@ export function renderOverlay(opts: {
   const targetDir = target.networkConfigPath.replace(/\/[^/]+$/, '');
   const networkMount = `${targetDir}:/networks:ro`;
 
-  const searchEnv = [
-    `      NETWORK_CONFIG_PATH: /networks/network.json`,
-    `      SWEEP_INTERVAL_MS: "${timing.SWEEP_INTERVAL_MS}"`,
-    `      CACHE_TTL_SECONDS: "${timing.CACHE_TTL_SECONDS}"`,
-    `      PEL_MIN_IDLE_MS: "${timing.PEL_MIN_IDLE_MS}"`,
-  ].join('\n');
+  // Merged, not appended: an override repeating a timing key would emit
+  // the key twice and strict YAML rejects duplicate mapping keys with an
+  // unhelpful "construct errors".
+  const searchEnvEntries: Record<string, string> = {
+    NETWORK_CONFIG_PATH: '/networks/network.json',
+    SWEEP_INTERVAL_MS: timing.SWEEP_INTERVAL_MS!,
+    CACHE_TTL_SECONDS: timing.CACHE_TTL_SECONDS!,
+    PEL_MIN_IDLE_MS: timing.PEL_MIN_IDLE_MS!,
+    ...(opts.searchOverrides ?? {}),
+  };
+  const searchEnv = Object.entries(searchEnvEntries)
+    .map(([k, v]) => `      ${k}: "${v}"`)
+    .join('\n');
 
   // The base compose publishes fixed host ports (5432, 5555, 8080, 8025,
   // 2742, 3100) because it is built for a developer running ONE stack. A
@@ -132,7 +146,7 @@ ${unnamed}
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json
-    volumes:
+    volumes: !override
       - ${networkMount}
 
   signals-api:
@@ -154,7 +168,7 @@ ${ephemeral(2742)}
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json
-    volumes:
+    volumes: !override
       - ${networkMount}
 
   # Not needed: journeys assert over HTTP. Moving it behind an unused profile
@@ -168,7 +182,7 @@ ${unnamed}
 ${ephemeral(3100)}
     environment:
 ${searchEnv}
-    volumes:
+    volumes: !override
       - ${networkMount}
 
   signals-search-worker:
@@ -176,7 +190,7 @@ ${searchEnv}
 ${unnamed}
     environment:
 ${searchEnv}
-    volumes:
+    volumes: !override
       - ${networkMount}
 `;
 }

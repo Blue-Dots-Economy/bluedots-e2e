@@ -21,6 +21,8 @@ export type ComposeDeps = {
   aggregatorRoot?: string;
   /** Reads the checked-in realm export; injected for testability. */
   readRealm?: (path: string) => Promise<string>;
+  /** Deliberate breakage for the negative controls. */
+  searchOverrides?: Record<string, string>;
   /** Injected so the realm mutation is testable without a live Keycloak. */
   createAdmin?: (
     exec: (service: string, cmd: readonly string[]) => Promise<string>,
@@ -100,6 +102,7 @@ export class ComposeProvider implements EnvironmentProvider {
         timing: env,
         aggregatorRoot: this.deps.aggregatorRoot,
         realmDir,
+        searchOverrides: this.deps.searchOverrides,
       }),
     );
 
