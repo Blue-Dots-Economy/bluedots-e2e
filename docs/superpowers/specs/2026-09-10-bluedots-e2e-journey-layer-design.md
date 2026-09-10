@@ -40,13 +40,13 @@ Docker Compose stack, Keycloak-minted identities, the step framework, three
 report tiers, the harness's own self-verification, and CI bound to a
 release-candidate tag.
 
-One journey ships with it — **J2, item → event → search hit** — on two
-targets: **`purple_dot`** and **`blue_dot/ka-dhwd`**. The compose file defines the whole stack;
+One journey ships with it — **J2, item → event → search hit** — proven on two
+targets, **`purple_dot`** and **`blue_dot/ka-dhwd`**, as two successive runs. The compose file defines the whole stack;
 profiles boot only what a journey needs.
 
-Running two targets on the first journey is deliberate. The design's central
-claim is that a target is a matrix parameter rather than a copy, and a
-single-target run asserts that claim without testing it. `blue_dot/ka-dhwd` is
+Covering two targets on the first journey is deliberate. The design's central
+claim is that a target is a matrix parameter rather than a copy, and testing
+only one asserts that claim without exercising it. `blue_dot/ka-dhwd` is
 also the target worth having: it is a real deployed instance, it carries a
 third domain and extra actions the dot-level config does not (§4), and blue
 declares **31** vectorize-marked fields against purple's **9** — far more
@@ -281,7 +281,7 @@ path is the CI path is a suite nobody reproduces.
 ```
 pnpm journey --dot blue_dot --instance ka-dhwd   # a deployed instance
 pnpm journey --dot purple_dot                    # a dot with no instances
-pnpm journey --dot blue_dot/ka-dhwd,purple_dot   # two targets, two stacks
+pnpm journey --dot blue_dot --instance up-gzb    # the next run, after teardown
 pnpm journey --images-from-tag 202608-s2-rc1     # what CI runs
 pnpm journey --branch feat/x                     # all four services on that branch tag
 pnpm journey --branch signals-dpg=feat/x         # one service moved, rest on develop
@@ -296,10 +296,17 @@ Two things must be chosen before a run: **which images** and **which target**.
 A target is a `(dot, instance)` pair — `blue_dot/ka-dhwd`, `purple_dot` — and
 it decides which schema the stack is configured with.
 
-When either is omitted on a terminal, the CLI prompts: the release tags or
-branches to resolve, then the dot and instance to test, listing what the pinned
-`bluedots-schemas` checkout actually offers. In CI both are flags and a missing
-one is an error, never a prompt and never a guess.
+**A run tests exactly one target.** `docker compose up` brings up one
+deployment — one dot, one instance — which is how the platform deploys, one
+instance per environment. Covering a second target is a second run: tear the
+stack down, bring it up configured for `up-gzb`, run again. There is no flag
+that boots two stacks at once, because there is no deployment that looks like
+that.
+
+When either input is omitted on a terminal, the CLI prompts: the release tags
+or branches to resolve, then the dot and instance to test, listing what the
+pinned `bluedots-schemas` checkout actually offers. In CI both are flags and a
+missing one is an error, never a prompt and never a guess.
 
 Local runs default to `:develop`, which `ci.yaml` publishes only after its
 checks pass, so the default is never a red build. `--branch` accepts a bare
@@ -378,16 +385,20 @@ One network per instance, from one local file. A harness running
 `source=remote` with two configs would be the only place in the fleet doing so,
 which is testing a configuration that ships nowhere.
 
-So: **one compose project per target**, each configured exactly as a deployed
-instance is — `NETWORK_CONFIG_SOURCE=local`, one `network.json`,
-`SERVED_DOMAINS` naming only that config's domains. Sequential by default,
-parallel behind a flag, because §14.1 has not established that one runner holds
-even a single stack with real TEI.
+So: **one stack, one target, one run.** The stack is configured exactly as a
+deployed instance is — `NETWORK_CONFIG_SOURCE=local`, one `network.json`,
+`SERVED_DOMAINS` naming only that config's domains. A second target is a second
+run against a fresh stack, never a second stack alongside the first.
 
-This also removes a rule the earlier revision needed: with a shared consumer
-group, two networks ingesting concurrently would each see the other's backlog
-and neither could tell drained from busy. Separate stacks, separate Redis,
-separate group. The rule and its justification both go away.
+This is not a resource compromise, it is the deployment model. One instance per
+environment is what ships, so a run that boots two at once would be testing an
+arrangement that does not exist — and the runner would have to hold two TEI
+containers to do it.
+
+It also removes a rule the earlier revision needed. With both networks in one
+stack sharing a consumer group, concurrent ingestion would leave each reading
+the other's backlog, unable to tell drained from busy. One target per stack
+makes that unreachable rather than merely guarded against.
 
 ### A target is a (dot, instance) pair
 
@@ -741,12 +752,11 @@ changing `SWEEP_INTERVAL_MS` or `PEL_MIN_IDLE_MS` moves them together.
 
 ### Scheduling
 
-Each target gets its own stack (§4), so each has its own Redis and its own
-`signals-search` consumer group. Targets are therefore independent, and the
-run order is a resource decision rather than a correctness one: sequential by
-default so peak container count stays at one stack, parallel behind a flag.
+A run holds one target and one stack (§4), so there is no cross-target
+scheduling to reason about. Targets are covered by successive runs against
+fresh stacks.
 
-Within a target, scenarios serialize. They share one consumer group, and the
+Within a run, scenarios serialize. They share one consumer group, and the
 awaiter's baseline is only meaningful if nothing else is publishing.
 
 ### Result-set assertions, not rank
@@ -778,6 +788,27 @@ Tier 2 renders the step trace from the declared labels:
  ✓ Waited until search ingestion had caught up
  ✗ Found it in search — no match after 30s
 ```
+
+### One run, one target, and the sheet that spans them
+
+A run produces one `summary.json` for one target. Tier 1 and tier 2 are
+per-run and need nothing more: an exit code and a failure trace belong to the
+run that produced them.
+
+Tier 3 does not work that way. "Did this release candidate pass?" spans every
+target the release was verified on, and those are separate runs. So the
+evidence sheet is rendered from **the set of `summary.json` files for one
+release tag**, and it names the targets it covers:
+
+```
+Release 202608-s2-rc1 — functional verification
+Verified 2026-09-10 · targets: purple dot, blue dot (ka-dhwd)
+```
+
+A target with no run for this tag appears under NOT COVERED rather than being
+omitted, which is the same honesty rule the block already applies to
+capabilities. Otherwise a sheet covering one target reads exactly like a sheet
+covering four.
 
 `summary.json` is the canonical record that both renderers read. JUnit XML is
 derived from it purely to feed GitHub's check UI, since JUnit cannot carry a
@@ -908,9 +939,9 @@ auth prerequisites, and an empirical runner question.
 | T9 | Correlating awaiter (`XRANGE` id → group position → `item_search.indexed_at`) | Ingestion is actually verified (§7) | T8, T4 |
 | T10 | Canary scenarios + `harness-selftest` as a per-PR check | The runner reports honestly | T8 |
 | T11 | Negative controls, including sweep-alive/consumer-dead | The gate cannot go vacuously green | T9, T4 |
-| T12 | J2 on `purple_dot` and `blue_dot/ka-dhwd` | One real journey passes on two targets | T6, T11 |
-| T13 | Report renderers: `summary.json` → tiers 1/2/3 + triage bundle | Legible evidence | T9 |
-| T14 | CI workflow on RC tag | Bound to the release | T12, T13 |
+| T12 | J2, run against `purple_dot` and then `blue_dot/ka-dhwd` | One real journey passes on two targets, one stack at a time | T6, T11 |
+| T13 | Report renderers: per-run tiers 1/2, tier 3 aggregated across a tag's runs, triage bundle | Legible evidence | T9 |
+| T14 | CI workflow on RC tag: one job per target, sequential, then the aggregated sheet | Bound to the release | T12, T13 |
 
 Four sequencing corrections worth naming, since each was wrong in the previous
 revision:
@@ -934,7 +965,7 @@ revision:
 The parent design's cost-of-change table is the acceptance criterion for T8 and
 T9 together: a second journey from existing steps must cost **no TypeScript**,
 and `blue_dot/ka-dhwd` must cost **no test code** — which T12 tests directly by
-running two targets. `SERVED_DOMAINS` being derived from the resolved config
+running the same journey against a second target. `SERVED_DOMAINS` being derived from the resolved config
 rather than hand-written (§4) is the part of that claim most likely to break
 first.
 
@@ -967,14 +998,13 @@ is optional:
 
 ## 14. Open questions
 
-1. **Does a standard GitHub runner hold one stack?** A target boots ~11
-   containers and real TEI alone wants 3-8 GB (§4). The parent design assumed
-   a stub precisely to avoid this. Per-target stacks make this a question about
-   one stack rather than the whole matrix, which helps; running targets in
-   parallel makes it worse and stays opt-in until this is answered. Settled
-   empirically at T3; if the runner cannot hold TEI, the fallback is a stub
-   embedder and §4's argument for production-identical vectors loses.
-   *(provisional)*
+1. **Does a standard GitHub runner hold one stack?** A run boots ~11
+   containers and real TEI alone wants 3-8 GB (§4). Because a run is
+   single-target, this is a question about one stack and stays one regardless
+   of how many targets a release is verified on — the cost of a second target
+   is wall clock, not memory. Settled empirically at T3; if the runner cannot
+   hold TEI, the fallback is a stub embedder and §4's argument for
+   production-identical vectors loses. *(provisional)*
 2. **`bluedots-schemas` versus `examples/schemas`.** The two purple_dot configs
    have already drifted (§4). The harness pins `bluedots-schemas`, so the local
    stack no longer matches what signals-dpg's own compose serves. Which is
