@@ -23,7 +23,17 @@ export const dockerInspector: Inspector = async (ref) => {
     const first = Array.isArray(parsed) ? parsed[0] : parsed;
     const digest = (first as { Descriptor?: { digest?: string } })?.Descriptor?.digest;
     return digest ?? null;
-  } catch {
+  } catch (err: unknown) {
+    // Distinguish "not there" from "not allowed". Swallowing both means a
+    // missing `packages: read` permission surfaces as IMAGE_NOT_FOUND,
+    // sending the reader to look for an image that exists.
+    const detail = String((err as { stderr?: string })?.stderr ?? err);
+    if (/unauthorized|denied|authentication required/i.test(detail)) {
+      throw new Error(
+        `REGISTRY_UNAUTHORIZED: ${ref} — the registry refused the credentials. ` +
+          `In CI this usually means the job lacks \`packages: read\`.`,
+      );
+    }
     return null;
   }
 };

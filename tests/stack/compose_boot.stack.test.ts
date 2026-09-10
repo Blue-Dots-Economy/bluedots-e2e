@@ -7,7 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
-import { targetFromEnv } from '../../src/targets/from_env.js';
+import { releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
@@ -48,7 +48,9 @@ describe('compose provider boots a usable stack', () => {
     // the target it claims, rather than every job testing purple_dot.
     const chosen = targetFromEnv(process.env);
     const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
-    const tags = resolveTags({ branch: null, imagesFromTag: null });
+    // Thread the release tag through, or a run triggered BY a release tag
+    // would verify :develop and promote the RC on an unrelated build.
+    const tags = resolveTags({ branch: null, imagesFromTag: releaseTagFromEnv(process.env) });
     const digests = await resolveDigests(
       {
         'signals-dpg': imageRef('signals-dpg', 'api', tags['signals-dpg']),

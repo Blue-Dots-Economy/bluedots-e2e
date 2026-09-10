@@ -19,3 +19,32 @@ export function targetFromEnv(env: NodeJS.ProcessEnv | Record<string, string | u
   }
   return { dot: parts[0]!, instance: parts[1] ?? null };
 }
+
+/** The fleet-wide release tag shape: <YYYYMM>-s<sprint>-rc<candidate>. */
+const RELEASE_TAG = /^20\d{4}-s\d+-rc\d+$/;
+
+/**
+ * Which release a run is verifying.
+ *
+ * Without this the stack tests fall through to DEFAULT_TAG and boot
+ * `:develop`, so a run triggered by a release tag would verify whatever
+ * develop pointed at that minute and the release would be promoted on an
+ * unrelated build's result.
+ *
+ * A non-release value is rejected rather than passed through: a branch name
+ * here boots that branch's images while the report says a release was
+ * verified.
+ */
+export function releaseTagFromEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+): string | null {
+  const raw = env.JOURNEY_RELEASE_TAG?.trim();
+  if (!raw) return null;
+  if (!RELEASE_TAG.test(raw)) {
+    throw new Error(
+      `JOURNEY_RELEASE_TAG must look like 202609-s1-rc1, got "${raw}". ` +
+        `Leave it unset to use the default per-service tags.`,
+    );
+  }
+  return raw;
+}

@@ -7,7 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
-import { targetFromEnv } from '../../src/targets/from_env.js';
+import { releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
@@ -58,7 +58,9 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
     const domainSchemas = networkConfig.domains.find((d) => d.id === DOMAIN)!.item_schemas;
     const itemType = Object.keys(domainSchemas)[0]!;
 
-    const tags = resolveTags({ branch: null, imagesFromTag: null });
+    // Thread the release tag through, or a run triggered BY a release tag
+    // would verify :develop and promote the RC on an unrelated build.
+    const tags = resolveTags({ branch: null, imagesFromTag: releaseTagFromEnv(process.env) });
     const digests = await resolveDigests(
       {
         'signals-dpg': imageRef('signals-dpg', 'api', tags['signals-dpg']),
