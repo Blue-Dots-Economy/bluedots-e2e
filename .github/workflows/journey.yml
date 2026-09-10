@@ -116,9 +116,22 @@ jobs:
             echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
           } | tee reports/provenance.txt
 
+      # Standard runners ship ~25 GB of toolchains this job never touches,
+      # against 14 GB free at start. The stack pulls TEI, builds a
+      # pgvector+postgis image and a full-monorepo tools image, so the
+      # margin was thin even when it held.
+      - name: reclaim runner disk
+        run: |
+          before=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          after=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          echo "reclaimed $((after - before)) GB (now ${after} GB free)"
+
       - name: capacity before boot
         run: |
-          { df -h; echo; free -m; } | tee reports/capacity-before.txt
+          { nproc; echo; lscpu | head -20; echo; df -h; echo; free -m; } \
+            | tee reports/capacity-before.txt
 
       - name: run the journey suite
         env:
@@ -127,7 +140,19 @@ jobs:
           BLUEDOTS_SCHEMAS_PATH: ${{ github.workspace }}/.checkouts/bluedots-schemas
           JOURNEY_TARGET: ${{ matrix.target }}
           JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
+          # Real TEI by default; a standard runner was shown to hold it.
+          # Set to `stub` if a future runner is tighter.
+          EMBEDDER: ${{ vars.EMBEDDER || 'tei' }}
         run: pnpm test:stack
+
+      # Always: a green run deserves a readable record too, and a red one
+      # needs it most.
+      - name: render the report
+        if: always()
+        env:
+          JOURNEY_TARGET: ${{ matrix.target }}
+          JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
+        run: pnpm report
 
       # A capacity failure and a regression look alike in a bare failure, so
       # capture enough to tell them apart.
