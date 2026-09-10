@@ -1,4 +1,12 @@
-name: journey
+name: release verification
+
+# `journey` said nothing in the Actions list -- every run looked the same,
+# and the job read as "journey (purple_dot)" with no indication of what was
+# being verified. run-name puts the release and the target in the run title,
+# so a list of runs is scannable.
+run-name: >-
+  Verify ${{ inputs.tag || github.ref_name }} ·
+  ${{ inputs.target || 'all targets' }}
 
 # The journey suite runs on a release-candidate tag, against the exact
 # images that tag published. It cannot be a branch-protection check: a tag
@@ -26,7 +34,8 @@ permissions:
   packages: read
 
 jobs:
-  journey:
+  verify:
+    name: verify ${{ matrix.target }}
     runs-on: ubuntu-latest
     # Three stack boots run sequentially (fileParallelism is off), each
     # 80-200s locally. The 360-minute default would let a wedged run hold a
