@@ -7,6 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
+import { targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
@@ -34,13 +35,19 @@ const aggregator =
   process.env.AGGREGATOR_DPG_PATH ??
   fileURLToPath(new URL('../../../aggregator-dpg', import.meta.url));
 
+/** Every target in scope declares a seeker domain. */
+const DOMAIN = 'seeker';
+
 describe('compose provider boots a usable stack', () => {
   let provider: ComposeProvider;
   let ctx: EnvironmentContext;
   let seeded: SeedResult;
 
   beforeAll(async () => {
-    const target = await resolveTarget(schemas, 'purple_dot', null);
+    // The target comes from the environment so a CI matrix job exercises
+    // the target it claims, rather than every job testing purple_dot.
+    const chosen = targetFromEnv(process.env);
+    const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
     const tags = resolveTags({ branch: null, imagesFromTag: null });
     const digests = await resolveDigests(
       {

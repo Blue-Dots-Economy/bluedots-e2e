@@ -7,6 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
+import { targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
@@ -26,20 +27,26 @@ const aggregator =
   process.env.AGGREGATOR_DPG_PATH ??
   fileURLToPath(new URL('../../../aggregator-dpg', import.meta.url));
 
+/** Every target in scope declares a seeker domain. */
+const DOMAIN = 'seeker';
+
 describe('J2 — a new profile becomes findable in search', () => {
   let provider: ComposeProvider;
   let ctx: StepContext;
   let probe: ReturnType<typeof createIngestProbe>;
 
   beforeAll(async () => {
-    const target = await resolveTarget(schemas, 'purple_dot', null);
+    // The target comes from the environment so a CI matrix job exercises
+    // the target it claims, rather than every job testing purple_dot.
+    const chosen = targetFromEnv(process.env);
+    const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
     // The item schema travels with the target: item_state differs per
     // network, so the fixture is generated from the config the stack serves.
     const networkConfig = JSON.parse(
       await readFile(target.networkConfigPath, 'utf8'),
-    ) as { domains: { id: string; item_schemas: Record<string, unknown> }[] };
-    const seekerSchemas = networkConfig.domains.find((d) => d.id === 'seeker')!.item_schemas;
-    const itemType = Object.keys(seekerSchemas)[0]!;
+    ) as { id: string; domains: { id: string; item_schemas: Record<string, unknown> }[] };
+    const domainSchemas = networkConfig.domains.find((d) => d.id === DOMAIN)!.item_schemas;
+    const itemType = Object.keys(domainSchemas)[0]!;
     const tags = resolveTags({ branch: null, imagesFromTag: null });
     const digests = await resolveDigests(
       {
@@ -93,10 +100,10 @@ describe('J2 — a new profile becomes findable in search', () => {
       seeded: seeded as unknown as Record<string, unknown>,
       state: {},
       target: {
-        network: 'purple_dot',
-        domain: 'seeker',
+        network: networkConfig.id,
+        domain: DOMAIN,
         itemType,
-        itemSchema: seekerSchemas[itemType] as never,
+        itemSchema: domainSchemas[itemType] as never,
       },
       probe,
       auth: {
@@ -112,7 +119,7 @@ describe('J2 — a new profile becomes findable in search', () => {
     await provider?.down();
   });
 
-  test('runs end to end on purple_dot', async () => {
+  test('runs end to end on the configured target', async () => {
     const result = await runJourney(J2, ctx);
 
     // Attach the trace to the assertion that actually fails, so the report

@@ -7,6 +7,7 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
+import { targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
@@ -38,18 +39,24 @@ const aggregator =
  * must fail. If it ever passes, the suite is reporting that ingestion works
  * when it demonstrably does not, and every J2 green is worthless.
  */
+/** Every target in scope declares a seeker domain. */
+const DOMAIN = 'seeker';
+
 describe('negative control: the sweep must not be able to fake a pass', () => {
   let provider: ComposeProvider;
   let ctx: StepContext;
   let probe: ReturnType<typeof createIngestProbe>;
 
   beforeAll(async () => {
-    const target = await resolveTarget(schemas, 'purple_dot', null);
+    // The target comes from the environment so a CI matrix job exercises
+    // the target it claims, rather than every job testing purple_dot.
+    const chosen = targetFromEnv(process.env);
+    const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
     const networkConfig = JSON.parse(
       await readFile(target.networkConfigPath, 'utf8'),
-    ) as { domains: { id: string; item_schemas: Record<string, unknown> }[] };
-    const seekerSchemas = networkConfig.domains.find((d) => d.id === 'seeker')!.item_schemas;
-    const itemType = Object.keys(seekerSchemas)[0]!;
+    ) as { id: string; domains: { id: string; item_schemas: Record<string, unknown> }[] };
+    const domainSchemas = networkConfig.domains.find((d) => d.id === DOMAIN)!.item_schemas;
+    const itemType = Object.keys(domainSchemas)[0]!;
 
     const tags = resolveTags({ branch: null, imagesFromTag: null });
     const digests = await resolveDigests(
@@ -111,7 +118,7 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
       state: {},
-      target: { network: 'purple_dot', domain: 'seeker', itemType, itemSchema: seekerSchemas[itemType] as never },
+      target: { network: networkConfig.id, domain: DOMAIN, itemType, itemSchema: domainSchemas[itemType] as never },
       probe,
       auth: {
         apiKey: seeded.apiKey,
