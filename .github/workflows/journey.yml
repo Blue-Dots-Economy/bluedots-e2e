@@ -10,67 +10,115 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify
+        description: Release tag to verify, e.g. 202609-s1-rc1
         required: true
       target:
-        description: Single target, e.g. purple_dot or blue_dot/ka-dhwd
+        description: Single target (purple_dot or blue_dot/ka-dhwd); blank runs all
         required: false
+        type: choice
+        options: ['', purple_dot, blue_dot/ka-dhwd]
+        default: ''
+
+# Without packages: read the ghcr pull fails as an auth error, which the
+# resolver now reports as REGISTRY_UNAUTHORIZED rather than a missing image.
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   journey:
     runs-on: ubuntu-latest
+    # Three stack boots run sequentially (fileParallelism is off), each
+    # 80-200s locally. The 360-minute default would let a wedged run hold a
+    # runner for six hours.
+    timeout-minutes: 60
     strategy:
       # One target per job, never in parallel within a job: a run boots one
       # stack because that is what a deployment looks like. fail-fast off so
       # one target's failure still leaves the others' evidence.
       fail-fast: false
       matrix:
-        # A dispatch naming a target runs just that one; otherwise every
-        # target the release should be verified on.
         target: ${{ inputs.target && fromJSON(format('["{0}"]', inputs.target)) || fromJSON('["purple_dot","blue_dot/ka-dhwd"]') }}
+    env:
+      # Resolved once. On dispatch, github.ref_name is the ref the run was
+      # started from -- usually main -- NOT inputs.tag, so using it for the
+      # checkouts would overlay main's compose while the report named the RC.
+      RESOLVED_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - name: check the release tag looks like one
+        run: |
+          if ! printf '%s' "$RESOLVED_TAG" | grep -Eq '^20[0-9]{4}-s[0-9]+-rc[0-9]+$'; then
+            echo "::error::RESOLVED_TAG='$RESOLVED_TAG' is not a release tag. This workflow verifies a release candidate; it cannot do that against a branch."
+            exit 1
+          fi
+          # A quote in the dispatch input would otherwise break matrix
+          # evaluation with no actionable message.
+          case "${{ matrix.target }}" in
+            purple_dot|blue_dot/ka-dhwd) ;;
+            *) echo "::error::Unknown target '${{ matrix.target }}'."; exit 1 ;;
+          esac
+          echo "TARGET_SLUG=$(printf '%s' '${{ matrix.target }}' | tr '/' '-')" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Same reason as ci.yml: the workflow reaches main before the harness.
       - id: harness
         run: |
-          if [ -f package.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -f package.json ]; then
             echo "::error::The journey harness is not on this ref yet. Merge the harness before running the journey suite."
             exit 1
           fi
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # The stack overlays signals-dpg's local-setup and reads realm and
-      # theme sources from aggregator-dpg, so both checkouts are required.
-      - uses: actions/checkout@v4
+      # The stack overlays signals-dpg's local-setup and bind-mounts
+      # aggregator-dpg's realm, render script, providers and themes into
+      # Keycloak, so both are part of what is under test and both are pinned
+      # to the SAME release tag. A floating ref on either would verify one
+      # release's services against another release's identity layer.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/signals-dpg
-          ref: ${{ github.ref_name }}
+          ref: ${{ env.RESOLVED_TAG }}
           path: .checkouts/Signals-DPG
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/aggregator-dpg
-          ref: develop
+          ref: ${{ env.RESOLVED_TAG }}
           path: .checkouts/aggregator-dpg
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/checkout@v4
+      # bluedots-schemas carries no tags, so main is unavoidable. The
+      # resolved SHA is recorded below so a re-run stays attributable.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/bluedots-schemas
           ref: main
           path: .checkouts/bluedots-schemas
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: log in to ghcr
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: record what this run is verifying
+        run: |
+          mkdir -p reports
+          {
+            echo "release_tag=$RESOLVED_TAG"
+            echo "target=${{ matrix.target }}"
+            echo "signals_dpg_sha=$(git -C .checkouts/Signals-DPG rev-parse HEAD)"
+            echo "aggregator_dpg_sha=$(git -C .checkouts/aggregator-dpg rev-parse HEAD)"
+            echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
+          } | tee reports/provenance.txt
+
+      - name: capacity before boot
+        run: |
+          { df -h; echo; free -m; } | tee reports/capacity-before.txt
 
       - name: run the journey suite
         env:
@@ -78,15 +126,28 @@ jobs:
           AGGREGATOR_DPG_PATH: ${{ github.workspace }}/.checkouts/aggregator-dpg
           BLUEDOTS_SCHEMAS_PATH: ${{ github.workspace }}/.checkouts/bluedots-schemas
           JOURNEY_TARGET: ${{ matrix.target }}
-          JOURNEY_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
         run: pnpm test:stack
 
-      # Always, not on success: a gate that explains nothing when red is a
-      # gate that gets disabled.
-      - name: reports and triage bundle
+      # A capacity failure and a regression look alike in a bare failure, so
+      # capture enough to tell them apart.
+      - name: triage bundle
+        if: failure()
+        run: |
+          { df -h; echo; free -m; } > reports/capacity-after.txt 2>&1 || true
+          docker ps -a > reports/docker-ps.txt 2>&1 || true
+          for p in $(docker compose ls -q 2>/dev/null); do
+            docker compose -p "$p" ps -a > "reports/compose-$p-ps.txt" 2>&1 || true
+            docker compose -p "$p" logs --no-color --tail 400 > "reports/compose-$p-logs.txt" 2>&1 || true
+          done
+
+      # always(), and if-no-files-found: error -- an empty upload would be
+      # indistinguishable from a run that produced no evidence, which is the
+      # failure this step exists to prevent.
+      - name: upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: journey-${{ strategy.job-index }}
+          name: journey-${{ env.TARGET_SLUG }}
           path: reports/
-          if-no-files-found: ignore
+          if-no-files-found: error
