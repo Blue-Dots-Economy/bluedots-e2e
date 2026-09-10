@@ -1,0 +1,58 @@
+name: ci
+
+# Per-PR check for this repository. Deliberately image-free: it must stay
+# fast enough that nobody is tempted to skip it. The journey suite, which
+# boots real service images, runs on release-candidate tags instead.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # The workflows land on main ahead of the harness itself, so this
+      # must be a no-op on a main that has no package.json yet rather than
+      # a red default branch nobody caused.
+      - id: harness
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json on this ref yet — the harness has not landed. Skipping."
+          fi
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        if: steps.harness.outputs.present == 'true'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.harness.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.harness.outputs.present == 'true'
+
+      - name: typecheck
+        if: steps.harness.outputs.present == 'true'
+        # NOT a live contract check. This type-checks the COMMITTED clients,
+        # so it catches a journey using a field the committed spec does not
+        # have -- not a provider changing their spec upstream. Detecting
+        # that needs `pnpm clients:check`, which regenerates from the
+        # providers and requires network, so it belongs in a scheduled drift
+        # job rather than here.
+        run: pnpm typecheck
+
+      - name: unit tests and harness selftest
+        if: steps.harness.outputs.present == 'true'
+        # Includes the canaries -- one built to pass, one built to fail --
+        # so a runner that reports green regardless is caught here rather
+        # than by a journey suite that looks healthy.
+        run: pnpm test
