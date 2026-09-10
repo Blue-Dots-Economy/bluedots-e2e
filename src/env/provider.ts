@@ -18,6 +18,12 @@ export type EnvironmentContext = {
    * not the same as a shared cluster holding someone else's data.
    */
   disposable: boolean;
+  /**
+   * Realm changes the harness made after import. Empty is the good case;
+   * anything here belongs in the run report, because a mutated realm is not
+   * quite the realm the services deploy against.
+   */
+  realmMutations: string[];
 };
 
 export interface EnvironmentProvider {

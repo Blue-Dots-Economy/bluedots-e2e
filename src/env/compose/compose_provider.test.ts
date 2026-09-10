@@ -22,8 +22,16 @@ function fakeDocker() {
   return { calls, run };
 }
 
+const STUB_ADMIN = async () => ({
+  getClients: async () => [
+    { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: true },
+  ],
+  updateClient: async () => {},
+});
+
 const DEPS = (run: (a: string[]) => Promise<string>) => ({
   run,
+  createAdmin: STUB_ADMIN,
   writeFile: async () => {},
   assertBindSources: async () => {},
   digests: { 'signals-dpg': 'sha256:a', 'signals-search': 'sha256:b' },
@@ -84,6 +92,55 @@ describe('ComposeProvider', () => {
 
     const i = calls[0]!.indexOf('-p');
     expect(calls[0]![i + 1]).toBe('journey-purple-dot');
+  });
+});
+
+describe('ComposeProvider.exec', () => {
+  test('runs a command in a service through compose, not by container name', async () => {
+    const { calls, run } = fakeDocker();
+    const p = new ComposeProvider(TARGET, DEPS(run));
+
+    await p.exec('postgres', ['psql', '-c', 'select 1']);
+
+    const call = calls.find((c) => c.includes('select 1'))!;
+    expect(call).toContain('exec');
+    expect(call).toContain('postgres');
+    // Fixed container names are global to the daemon; the project scopes it.
+    expect(call).not.toContain('signals-postgres');
+  });
+});
+
+describe('ComposeProvider realm mutation', () => {
+  test('enables direct grant and records that it did', async () => {
+    const { run } = fakeDocker();
+    const ctx = await new ComposeProvider(TARGET, {
+      ...DEPS(run),
+      createAdmin: async () => ({
+        getClients: async () => [
+          { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: false },
+        ],
+        updateClient: async () => {},
+      }),
+    }).up();
+
+    // A mutated realm is not quite the realm the services deploy against, so
+    // the run has to be able to say what it changed.
+    expect(ctx.realmMutations).toContain('enabled directAccessGrants on signals-ui');
+  });
+
+  test('records nothing when the realm already allowed direct grant', async () => {
+    const { run } = fakeDocker();
+    const ctx = await new ComposeProvider(TARGET, {
+      ...DEPS(run),
+      createAdmin: async () => ({
+        getClients: async () => [
+          { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: true },
+        ],
+        updateClient: async () => {},
+      }),
+    }).up();
+
+    expect(ctx.realmMutations).toEqual([]);
   });
 });
 

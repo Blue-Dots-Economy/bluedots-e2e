@@ -6,6 +6,9 @@ import { renderOverlay } from './overlay.js';
 import { composeArgs, projectName } from './compose_cmd.js';
 import { buildEndpoints, parsePublishedPort, type DiscoveredPorts } from './ports.js';
 import { assertSchemaReady } from '../schema_gate.js';
+import { enableDirectGrant, type KeycloakAdmin } from '../keycloak_setup.js';
+import { createKcadmAdmin } from '../kcadm.js';
+import { prepareRealm } from '../realm_prepare.js';
 
 export type ComposeDeps = {
   run: (args: string[]) => Promise<string>;
@@ -14,6 +17,15 @@ export type ComposeDeps = {
   digests: Record<string, string>;
   baseFile: string;
   runDir: string;
+  /** Absolute path to the aggregator-dpg checkout (realm + themes source). */
+  aggregatorRoot?: string;
+  /** Reads the checked-in realm export; injected for testability. */
+  readRealm?: (path: string) => Promise<string>;
+  /** Injected so the realm mutation is testable without a live Keycloak. */
+  createAdmin?: (
+    exec: (service: string, cmd: readonly string[]) => Promise<string>,
+    creds: { username: string; password: string },
+  ) => Promise<KeycloakAdmin>;
 };
 
 /** Container ports to discover, by compose service name. */
@@ -60,10 +72,35 @@ export class ComposeProvider implements EnvironmentProvider {
     // directory, which surfaces as EISDIR inside a container much later.
     await this.deps.assertBindSources([this.target.networkConfigPath]);
 
+    // The checked-in export is prepared before import: aggregator-dpg's
+    // currently carries a 343-char client description that exceeds
+    // Keycloak's column and fails the whole import. Anything changed is
+    // reported rather than absorbed.
+    const realmMutations: string[] = [];
+    let realmDir: string | undefined;
+    if (this.deps.aggregatorRoot && this.deps.readRealm) {
+      const raw = await this.deps.readRealm(
+        join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'realms', 'realm.json'),
+      );
+      const prepared = prepareRealm(JSON.parse(raw) as Record<string, unknown>);
+      realmMutations.push(...prepared.mutations);
+      realmDir = join(this.deps.runDir, 'realms');
+      await this.deps.writeFile(
+        join(realmDir, 'realm.json'),
+        JSON.stringify(prepared.realm, null, 2),
+      );
+    }
+
     await this.deps.writeFile(this.envFile, renderEnvFile(env));
     await this.deps.writeFile(
       this.overlayFile,
-      renderOverlay({ target: this.target, digests: this.deps.digests, timing: env }),
+      renderOverlay({
+        target: this.target,
+        digests: this.deps.digests,
+        timing: env,
+        aggregatorRoot: this.deps.aggregatorRoot,
+        realmDir,
+      }),
     );
 
     await this.deps.run(this.args(['up', '-d', '--wait']));
@@ -73,13 +110,10 @@ export class ComposeProvider implements EnvironmentProvider {
     // through compose rather than the container_name, which is global to the
     // daemon and would hit the developer's own stack.
     await assertSchemaReady(async (relation) => {
-      const out = await this.deps.run(
-        this.args([
-          'exec', '-T', 'postgres',
-          'psql', '-U', 'postgres', '-d', 'postgresdb',
-          '-tAc', `select to_regclass('public.${relation}')`,
-        ]),
-      );
+      const out = await this.exec('postgres', [
+        'psql', '-U', 'postgres', '-d', 'postgresdb',
+        '-tAc', `select to_regclass('public.${relation}')`,
+      ]);
       return out.trim().length > 0;
     });
 
@@ -89,20 +123,47 @@ export class ComposeProvider implements EnvironmentProvider {
       discovered[key as keyof DiscoveredPorts] = parsePublishedPort(out);
     }
 
+    const endpoints = buildEndpoints(discovered, {
+      postgresUser: 'postgres',
+      postgresPassword: env.POSTGRES_PASSWORD!,
+      postgresDb: 'postgresdb',
+      redisPassword: env.REDIS_PASSWORD!,
+    });
+
+    // Direct grant is disabled on every client the harness could use, so a
+    // user token is unobtainable without turning it on. This mutates the
+    // imported realm; the design owns that rather than claiming the realm is
+    // untouched, and records whether anything actually changed.
+    const makeAdmin = this.deps.createAdmin ?? createKcadmAdmin;
+    const admin = await makeAdmin((service, cmd) => this.exec(service, cmd), {
+      username: env.KC_BOOTSTRAP_ADMIN_USERNAME!,
+      password: env.KC_BOOTSTRAP_ADMIN_PASSWORD!,
+    });
+    if (await enableDirectGrant(admin, env.KEYCLOAK_REALM!, 'signals-ui')) {
+      realmMutations.push('enabled directAccessGrants on signals-ui');
+    }
+
     return {
       target: this.target,
-      endpoints: buildEndpoints(discovered, {
-        postgresUser: 'postgres',
-        postgresPassword: env.POSTGRES_PASSWORD!,
-        postgresDb: 'postgresdb',
-        redisPassword: env.REDIS_PASSWORD!,
-      }),
+      endpoints,
+      realmMutations,
       // A compose stack exposes the ingest stream and the read model, which
       // is what lets a journey prove an event crossed the spine.
       capabilities: ['http', 'redis', 'postgres'],
       digests: this.deps.digests,
       disposable: true,
     };
+  }
+
+  /**
+   * Run a command inside one of this project's services.
+   *
+   * Addressed by compose service name, never by container_name: those are
+   * global to the docker daemon and would reach a stale run or the
+   * developer's own stack.
+   */
+  async exec(service: string, command: readonly string[]): Promise<string> {
+    return this.deps.run(this.args(['exec', '-T', service, ...command]));
   }
 
   async down(): Promise<void> {

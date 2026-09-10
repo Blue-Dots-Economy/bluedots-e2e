@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
@@ -11,6 +11,7 @@ import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.j
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
+
 
 /**
  * Boots the real stack for purple_dot and asserts the properties every later
@@ -24,6 +25,9 @@ const schemas =
 const signalsDpg =
   process.env.SIGNALS_DPG_PATH ??
   fileURLToPath(new URL('../../../Signals-DPG', import.meta.url));
+const aggregator =
+  process.env.AGGREGATOR_DPG_PATH ??
+  fileURLToPath(new URL('../../../aggregator-dpg', import.meta.url));
 
 describe('compose provider boots a usable stack', () => {
   let provider: ComposeProvider;
@@ -42,12 +46,17 @@ describe('compose provider boots a usable stack', () => {
 
     provider = new ComposeProvider(target, {
       run: dockerRun,
-      writeFile: async (p, c) => writeFile(p, c),
+      writeFile: async (p, c) => {
+        await mkdir(dirname(p), { recursive: true });
+        await writeFile(p, c);
+      },
+      readRealm: async (p) => readFile(p, 'utf8'),
       assertBindSources,
       digests,
       baseFile: join(signalsDpg, 'local-setup', 'docker-compose.yml'),
       runDir: await mkdtemp(join(tmpdir(), 'journey-')),
-    });
+      aggregatorRoot: aggregator,
+      });
 
     ctx = await provider.up();
   });
@@ -75,17 +84,17 @@ describe('compose provider boots a usable stack', () => {
   });
 
   test('the ingest consumer group exists, which the awaiter reads', async () => {
-    const out = await dockerRun([
-      'exec', 'signals-redis', 'redis-cli', '-a', 'journey-redis-pw',
-      '--no-auth-warning', 'XINFO', 'GROUPS', 'signals:item-events',
+    const out = await provider.exec('redis', [
+      'redis-cli', '-a', 'journey-redis-pw', '--no-auth-warning',
+      'XINFO', 'GROUPS', 'signals:item-events',
     ]);
 
     expect(out).toContain('signals-search');
   });
 
   test('item_search exists, which the awaiter asserts on', async () => {
-    const out = await dockerRun([
-      'exec', 'signals-postgres', 'psql', '-U', 'postgres', '-d', 'postgresdb',
+    const out = await provider.exec('postgres', [
+      'psql', '-U', 'postgres', '-d', 'postgresdb',
       '-tAc', "select to_regclass('public.item_search')",
     ]);
 
@@ -96,8 +105,8 @@ describe('compose provider boots a usable stack', () => {
     // up() already gated on this; asserting it here means a regression names
     // the schema rather than surfacing as an odd failure in a later journey.
     for (const relation of REQUIRED_RELATIONS) {
-      const out = await dockerRun([
-        'exec', 'signals-postgres', 'psql', '-U', 'postgres', '-d', 'postgresdb',
+      const out = await provider.exec('postgres', [
+        'psql', '-U', 'postgres', '-d', 'postgresdb',
         '-tAc', `select to_regclass('public.${relation}')`,
       ]);
 
@@ -113,6 +122,35 @@ describe('compose provider boots a usable stack', () => {
       expect(ctx.endpoints.signalsApi).not.toContain(`:${fixed}`);
       expect(ctx.endpoints.postgresUrl).not.toContain(`:${fixed}/`);
     }
+  });
+
+  test('imports the eight-client aggregator realm, not the four-client one', async () => {
+    // signals-dpg's export has 4 clients; only aggregator-dpg's carries all
+    // eight a four-service stack needs. Getting this wrong is invisible until
+    // a journey authenticates as a client that is not there.
+    const out = await provider.exec('keycloak', [
+      '/opt/keycloak/bin/kcadm.sh', 'get', 'clients', '-r', 'bluedots',
+      '--fields', 'clientId',
+    ]);
+    const ids = (JSON.parse(out) as { clientId: string }[]).map((c) => c.clientId);
+
+    for (const expected of [
+      'signals-ui', 'signals-api', 'aggregator-dpg', 'voice-dpg',
+      'aggregator-portal', 'aggregator-api', 'aggregator-bff', 'campaign-manager',
+    ]) {
+      expect(ids, `${expected} must be in the realm`).toContain(expected);
+    }
+  });
+
+  test('direct grant is on, which both exports ship disabled', async () => {
+    const out = await provider.exec('keycloak', [
+      '/opt/keycloak/bin/kcadm.sh', 'get', 'clients', '-r', 'bluedots',
+      '-q', 'clientId=signals-ui', '--fields', 'directAccessGrantsEnabled',
+    ]);
+    const [client] = JSON.parse(out) as { directAccessGrantsEnabled: boolean }[];
+
+    expect(client!.directAccessGrantsEnabled).toBe(true);
+    expect(ctx.realmMutations).toContain('enabled directAccessGrants on signals-ui');
   });
 
   test('reports the capabilities a journey checks against', () => {

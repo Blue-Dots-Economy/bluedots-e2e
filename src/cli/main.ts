@@ -11,8 +11,10 @@ import { SERVICES } from './args.js';
 import { ComposeProvider } from '../env/compose/compose_provider.js';
 import { assertBindSources } from '../env/compose/overlay.js';
 import { dockerRun } from '../env/compose/docker_runner.js';
-import { signalsDpgRoot } from '../config/paths.js';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { aggregatorRoot, signalsDpgRoot } from '../config/paths.js';
+
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -87,11 +89,16 @@ async function main(argv: string[]): Promise<number> {
   // learn whether a stack was booted here or already existed elsewhere.
   const provider = new ComposeProvider(target, {
     run: dockerRun,
-    writeFile: async (path, contents) => writeFile(path, contents),
+    writeFile: async (path, contents) => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, contents);
+    },
+    readRealm: async (path) => readFile(path, 'utf8'),
     assertBindSources,
     digests,
     baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
     runDir: await mkdtemp(join(tmpdir(), 'journey-')),
+    aggregatorRoot: aggregatorRoot(),
   });
 
   stdout.write('\nbringing the stack up…\n');
@@ -105,6 +112,7 @@ async function main(argv: string[]): Promise<number> {
       `  search api      ${ctx.endpoints.searchApi}`,
       `  keycloak        ${ctx.endpoints.keycloak}`,
       `  capabilities    ${ctx.capabilities.join(', ')}`,
+      `  realm changes   ${ctx.realmMutations.length ? ctx.realmMutations.join('; ') : '(none)'}`,
       '',
     ].join('\n'),
   );

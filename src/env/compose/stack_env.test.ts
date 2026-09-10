@@ -76,3 +76,31 @@ describe('buildStackEnv', () => {
     expect(Buffer.from(env.SIGNALS_PII_KEY!, 'base64')).toHaveLength(32);
   });
 });
+
+describe('aggregator realm rendering', () => {
+  test('supplies every fail-hard input the render script requires', () => {
+    const env = buildStackEnv(TARGET);
+
+    // All five are `:?` in aggregator's render-realm.sh, so a missing one
+    // fails the container at boot rather than producing a broken realm.
+    for (const key of [
+      'KEYCLOAK_REALM',
+      'PUBLIC_BASE_URL',
+      'AGGREGATOR_API_SECRET',
+      'AGGREGATOR_PORTAL_SECRET',
+      'AGGREGATOR_BFF_SECRET',
+    ]) {
+      expect(env[key], `${key} must be set`).toBeTruthy();
+    }
+  });
+
+  test('the signals-api secret matches on both sides of the token exchange', () => {
+    const env = buildStackEnv(TARGET);
+
+    // The realm renders __SIGNALS_API_SECRET__ into the signals-api client,
+    // and signals-api authenticates with KEYCLOAK_API_CLIENT_SECRET. If they
+    // differ the service gets 401 invalid_client, which reads like a
+    // misconfigured realm rather than two values drifting apart.
+    expect(env.SIGNALS_API_SECRET).toBe(env.KEYCLOAK_API_CLIENT_SECRET);
+  });
+});

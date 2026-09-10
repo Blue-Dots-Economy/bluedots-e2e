@@ -60,6 +60,22 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     KEYCLOAK_UI_CLIENT_ID: 'signals-ui',
     PUBLIC_BASE_URL: 'http://localhost:5173',
 
+    // aggregator-dpg's render-realm.sh substitutes 19 placeholders and fails
+    // hard on five of them. The realm is booted fresh per run and is not
+    // reachable outside the compose network, so these are fixed test values.
+    AGGREGATOR_API_SECRET: 'journey-aggregator-api-secret',
+    AGGREGATOR_PORTAL_SECRET: 'journey-aggregator-portal-secret',
+    AGGREGATOR_BFF_SECRET: 'journey-aggregator-bff-secret',
+    CAMPAIGN_MANAGER_SECRET: 'journey-campaign-manager-secret',
+    SIGNALSTACK_CLIENT_SECRET: 'journey-signalstack-secret',
+    VOICE_DPG_SIGNALS_SECRET: 'journey-voice-dpg-secret',
+    // Rendered into the signals-api client AND read by signals-api itself as
+    // KEYCLOAK_API_CLIENT_SECRET. They must be the same value or the service
+    // gets 401 invalid_client, which reads like a broken realm rather than
+    // two settings drifting apart.
+    SIGNALS_API_SECRET: 'journey-signals-api-secret',
+    KEYCLOAK_API_CLIENT_SECRET: 'journey-signals-api-secret',
+
     // signals-search: one image for api and worker, sharing signals-dpg's
     // database. EMBEDDING_DIM must equal item_search.embedding's vector(1024)
     // or the worker refuses to start.
