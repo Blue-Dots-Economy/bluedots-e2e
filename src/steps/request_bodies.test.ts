@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildUpsertBody, buildSearchBody, extractItemKey } from './steps.js';
+import { buildUpsertBody, buildSearchBody, extractItemKey } from './request_bodies.js';
 
 describe('buildUpsertBody', () => {
   test('targets the dot the run is testing, not the API default', () => {

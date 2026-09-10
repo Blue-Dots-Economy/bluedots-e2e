@@ -3,7 +3,7 @@ import {
   createProfile,
   expectFoundInSearch,
   waitUntilThisItemIndexed,
-} from '../../src/steps/j2_steps.js';
+} from '../../src/steps/index.js';
 
 export const J2 = defineJourney({
   id: 'J2',
