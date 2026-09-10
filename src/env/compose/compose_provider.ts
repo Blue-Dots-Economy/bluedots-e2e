@@ -5,6 +5,7 @@ import { buildStackEnv, renderEnvFile } from './stack_env.js';
 import { renderOverlay } from './overlay.js';
 import { composeArgs, projectName } from './compose_cmd.js';
 import { buildEndpoints, parsePublishedPort, type DiscoveredPorts } from './ports.js';
+import { assertSchemaReady } from '../schema_gate.js';
 
 export type ComposeDeps = {
   run: (args: string[]) => Promise<string>;
@@ -66,6 +67,21 @@ export class ComposeProvider implements EnvironmentProvider {
     );
 
     await this.deps.run(this.args(['up', '-d', '--wait']));
+
+    // Phase 2's second gate. `--wait` only proves the bootstrap container
+    // exited 0; this proves it created what the journeys read. Addressed
+    // through compose rather than the container_name, which is global to the
+    // daemon and would hit the developer's own stack.
+    await assertSchemaReady(async (relation) => {
+      const out = await this.deps.run(
+        this.args([
+          'exec', '-T', 'postgres',
+          'psql', '-U', 'postgres', '-d', 'postgresdb',
+          '-tAc', `select to_regclass('public.${relation}')`,
+        ]),
+      );
+      return out.trim().length > 0;
+    });
 
     const discovered = {} as DiscoveredPorts;
     for (const [key, [service, port]] of Object.entries(PORTS)) {

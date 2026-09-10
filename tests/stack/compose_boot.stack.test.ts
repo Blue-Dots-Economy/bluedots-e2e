@@ -10,6 +10,7 @@ import { resolveTarget } from '../../src/targets/targets.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
+import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
 
 /**
  * Boots the real stack for purple_dot and asserts the properties every later
@@ -89,6 +90,20 @@ describe('compose provider boots a usable stack', () => {
     ]);
 
     expect(out.trim()).toBe('item_search');
+  });
+
+  test('every relation the schema gate requires is present', async () => {
+    // up() already gated on this; asserting it here means a regression names
+    // the schema rather than surfacing as an odd failure in a later journey.
+    for (const relation of REQUIRED_RELATIONS) {
+      const out = await dockerRun([
+        'exec', 'signals-postgres', 'psql', '-U', 'postgres', '-d', 'postgresdb',
+        '-tAc', `select to_regclass('public.${relation}')`,
+      ]);
+
+      // to_regclass quotes reserved words, so `user` comes back as `"user"`.
+      expect(out.trim().replace(/^"|"$/g, ''), `${relation} must exist`).toBe(relation);
+    }
   });
 
   test('publishes no fixed host port, so it coexists with other stacks', () => {

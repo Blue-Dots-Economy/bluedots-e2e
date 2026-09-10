@@ -15,6 +15,8 @@ function fakeDocker() {
   const run = async (args: string[]) => {
     calls.push(args);
     if (args.includes('port')) return `0.0.0.0:${++port}\n`;
+    // to_regclass returns the relation name when it exists.
+    if (args.includes('psql')) return 'relation\n';
     return '';
   };
   return { calls, run };
@@ -82,5 +84,41 @@ describe('ComposeProvider', () => {
 
     const i = calls[0]!.indexOf('-p');
     expect(calls[0]![i + 1]).toBe('journey-purple-dot');
+  });
+});
+
+describe('ComposeProvider schema gate', () => {
+  test('refuses a stack whose schema never got created', async () => {
+    // The bootstrap exiting 0 is only a proxy. If the relations are absent,
+    // every later failure would look like an application bug instead of a
+    // migration that did not run.
+    const run = async (args: string[]) => {
+      if (args.includes('port')) return '0.0.0.0:55001\n';
+      if (args.includes('psql')) return '\n'; // to_regclass -> null
+      return '';
+    };
+
+    await expect(new ComposeProvider(TARGET, DEPS(run)).up()).rejects.toThrow(
+      /MIGRATIONS_INCOMPLETE/,
+    );
+  });
+
+  test('queries postgres through compose, not a fixed container name', async () => {
+    // container_name is global to the docker daemon, so addressing
+    // signals-postgres directly would collide with the developer's own stack.
+    const calls: string[][] = [];
+    const run = async (args: string[]) => {
+      calls.push(args);
+      if (args.includes('port')) return '0.0.0.0:55001\n';
+      if (args.includes('psql')) return 'items\n';
+      return '';
+    };
+
+    await new ComposeProvider(TARGET, DEPS(run)).up();
+
+    const psql = calls.find((c) => c.includes('psql'))!;
+    expect(psql).toContain('exec');
+    expect(psql).toContain('postgres');
+    expect(psql).not.toContain('signals-postgres');
   });
 });
