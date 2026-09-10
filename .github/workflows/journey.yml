@@ -25,7 +25,9 @@ jobs:
       # one target's failure still leaves the others' evidence.
       fail-fast: false
       matrix:
-        target: [purple_dot, blue_dot/ka-dhwd]
+        # A dispatch naming a target runs just that one; otherwise every
+        # target the release should be verified on.
+        target: ${{ inputs.target && fromJSON(format('["{0}"]', inputs.target)) || fromJSON('["purple_dot","blue_dot/ka-dhwd"]') }}
     steps:
       - uses: actions/checkout@v4
 
