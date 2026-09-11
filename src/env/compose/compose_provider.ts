@@ -4,6 +4,7 @@ import type { EnvironmentContext, EnvironmentProvider } from '../provider.js';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
 import { buildStackEnv, renderEnvFile } from './stack_env.js';
 import { renderOverlay } from './overlay.js';
+import { assertCoversBaseServices } from './base_services.js';
 import { composeArgs, projectName } from './compose_command.js';
 import { buildEndpoints, parsePublishedPort, type DiscoveredPorts } from './ports.js';
 import { assertSchemaReady } from '../schema_gate.js';
@@ -23,6 +24,8 @@ export type ComposeDeps = {
   aggregatorRoot?: string;
   /** Reads the checked-in realm export; injected for testability. */
   readRealm?: (path: string) => Promise<string>;
+  /** Reads the base compose, so its service list can be checked. */
+  readBaseFile?: (path: string) => Promise<string>;
   /** Deliberate breakage for the negative controls. */
   searchOverrides?: Record<string, string>;
   /** 'tei' (default) or 'stub'; see renderOverlay. */
@@ -77,6 +80,15 @@ export class ComposeProvider implements EnvironmentProvider {
     // Fail before boot: Docker turns a missing bind source into an empty
     // directory, which surfaces as EISDIR inside a container much later.
     await this.deps.assertBindSources([this.target.networkConfigPath]);
+
+    // And fail before boot on a service the base compose has grown that
+    // the overlay does not neutralise. Left alone it keeps its fixed
+    // container_name, which is global to the docker daemon -- caught
+    // otherwise as a collision minutes in, or not at all until a second
+    // run silently reuses the first one's container.
+    if (this.deps.readBaseFile) {
+      assertCoversBaseServices(await this.deps.readBaseFile(this.deps.baseFile));
+    }
 
     // The checked-in export is prepared before import: aggregator-dpg's
     // currently carries a 343-char client description that exceeds

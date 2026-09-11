@@ -94,6 +94,7 @@ async function main(argv: string[]): Promise<number> {
       await writeFile(path, contents);
     },
     readRealm: async (path) => readFile(path, 'utf8'),
+    readBaseFile: async (path) => readFile(path, 'utf8'),
     assertBindSources,
     digests,
     baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),

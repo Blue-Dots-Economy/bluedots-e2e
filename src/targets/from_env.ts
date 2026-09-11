@@ -58,6 +58,15 @@ export function releaseTagFromEnv(
  * asserted determinism. The seed is recorded in the run's provenance, so a
  * red run can be replayed with JOURNEY_SEED=<value>.
  */
+/**
+ * Distinguishes this process from another run of the same tag and target.
+ *
+ * Fixed at module load, not per call: seedFromEnv has to return the same
+ * value every time it is asked within a run, or two journeys in one run
+ * build fixtures nothing can correlate. GITHUB_RUN_ID supplies it in CI.
+ */
+const PROCESS_NONCE = String(Date.now());
+
 export function seedFromEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
 ): string {
@@ -73,7 +82,7 @@ export function seedFromEnv(
   return [
     env.JOURNEY_RELEASE_TAG ?? 'local',
     env.JOURNEY_TARGET ?? 'default',
-    env.GITHUB_RUN_ID ?? String(Date.now()),
+    env.GITHUB_RUN_ID ?? PROCESS_NONCE,
   ]
     .join('-')
     .replace(/[^a-zA-Z0-9-]/g, '-');

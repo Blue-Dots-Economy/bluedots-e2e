@@ -1,31 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
-import { assertBindSources } from '../../src/env/compose/overlay.js';
-import { dockerRun } from '../../src/env/compose/docker_runner.js';
-import { resolveTarget } from '../../src/targets/target_discovery.js';
-import { aggregatorRoot, schemasRoot, signalsDpgRoot } from '../../src/config/paths.js';
-import { buildTargetSchemas, type NetworkConfig } from '../../src/targets/target_schemas.js';
-import { imageTagsFromEnv, releaseTagFromEnv, seedFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
-import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
-import { SERVICES } from '../../src/cli/args.js';
-
-/** The services a journey run actually starts containers for. */
-const BOOTED_SERVICES = ['signals-dpg', 'signals-search'];
-import { dockerInspector } from '../../src/images/docker_inspector.js';
-import { createKcadmAdmin } from '../../src/env/kcadm.js';
-import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
-import { obtainUserToken } from '../../src/seed/token.js';
-import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { createRecorder } from '../../src/report/http_recorder.js';
 import { stepKey } from '../../src/report/journey_views.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
-import { runJourney, type StepContext, type StepOutcome } from '../../src/journey/define_journey.js';
+import { runJourney, type StepOutcome } from '../../src/journey/define_journey.js';
 import { selectJourneys } from '../../src/journey/select.js';
 import { ALL_JOURNEYS } from '../../journeys/index.js';
-import type { EnvironmentContext } from '../../src/env/provider.js';
+import { bootStack, teardownStack, type BootedStack } from './boot_stack.js';
 
 /**
  * One stack, every journey.
@@ -39,13 +20,8 @@ import type { EnvironmentContext } from '../../src/env/provider.js';
  * The negative controls keep their own file because they need a
  * deliberately misconfigured stack.
  */
-
 describe('journeys against a real stack', () => {
-  let provider: ComposeProvider;
-  let env: EnvironmentContext;
-  let seeded: SeedResult;
-  let probe: ReturnType<typeof createIngestProbe>;
-  let baseCtx: Omit<StepContext, 'state'>;
+  let stack: BootedStack;
   // One recorder for the file: every journey's calls land in it, each
   // attributed to the step that made it, and the whole lot is written out
   // for the report once the stack comes down.
@@ -53,7 +29,6 @@ describe('journeys against a real stack', () => {
   // The step trace exists only in this process. Without writing it out, the
   // report can only show the JUnit case name -- one line per journey -- and
   // never the steps inside it.
-  let resolvedDigests: Record<string, string> = {};
   const runs: {
     id: string;
     title: string;
@@ -61,89 +36,10 @@ describe('journeys against a real stack', () => {
     ok: boolean;
     trace: StepOutcome[];
   }[] = [];
-  let targetId: string;
 
   beforeAll(async () => {
-    const chosen = targetFromEnv(process.env);
-    targetId = chosen.instance ? `${chosen.dot}/${chosen.instance}` : chosen.dot;
-    const target = await resolveTarget(schemasRoot(), chosen.dot, chosen.instance);
-
-    const targetSchemas = buildTargetSchemas(
-      JSON.parse(await readFile(target.networkConfigPath, 'utf8')) as NetworkConfig,
-    );
-
-    const tags = resolveTags({
-      branch: null,
-      imagesFromTag: releaseTagFromEnv(process.env),
-      perService: imageTagsFromEnv(process.env),
-    });
-    // All four are resolved, though only signals-dpg and signals-search
-    // boot for J2: a run that says it verified a release should be able to
-    // name the digest of every service in it, and resolving only inspects
-    // manifests -- it pulls nothing. Only the two that boot are required:
-    // a tag not cut fleet-wide otherwise stopped a run that never needed
-    // the other images, and reported nothing at all.
-    const digests = await resolveDigests(
-      Object.fromEntries(SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])])),
-      dockerInspector,
-      { required: BOOTED_SERVICES },
-    );
-
-    resolvedDigests = digests;
-
-    provider = new ComposeProvider(target, {
-      run: dockerRun,
-      writeFile: async (p, c) => {
-        await mkdir(dirname(p), { recursive: true });
-        await writeFile(p, c);
-      },
-      readRealm: async (p) => readFile(p, 'utf8'),
-      assertBindSources,
-      digests,
-      baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
-      runDir: await mkdtemp(join(tmpdir(), 'journey-')),
-      aggregatorRoot: aggregatorRoot(),
-      embedder: process.env.EMBEDDER === 'stub' ? 'stub' : 'tei',
-    });
-
-    env = await provider.up();
-
-    const admin = await createKcadmAdmin((svc, cmd) => provider.exec(svc, cmd), {
-      username: 'admin',
-      password: 'admin',
-    });
-    seeded = await seedIdentities(
-      { realm: 'bluedots' },
-      {
-        runTool: (cmd) => provider.runTool(cmd),
-        admin,
-        obtainToken: (user) =>
-          obtainUserToken(
-            { baseUrl: env.endpoints.keycloak, realm: 'bluedots', clientId: 'signals-ui' },
-            user,
-          ),
-      },
-    );
-
-    probe = createIngestProbe({
-      redisUrl: env.endpoints.redisUrl,
-      postgresUrl: env.endpoints.postgresUrl,
-    });
-
-    baseCtx = {
-      clients: {},
-      http: recorder.fetch,
-      endpoints: env.endpoints,
-      seeded: seeded as unknown as Record<string, unknown>,
-      target: targetSchemas,
-      probe,
-      auth: {
-        apiKey: seeded.apiKey,
-        actingOrgId: seeded.aggregatorOrgId,
-        participantToken: seeded.participant.token,
-      },
-    };
-  });
+    stack = await bootStack({ http: recorder.fetch });
+  }, 600_000);
 
   afterAll(async () => {
     // reports/ is what render_report.ts reads; the recording is useless if
@@ -156,20 +52,23 @@ describe('journeys against a real stack', () => {
     // knows what the harness changed while running.
     await writeFile(
       'reports/run_facts.json',
-      JSON.stringify({ digests: resolvedDigests, realmMutations: env?.realmMutations ?? [] }, null, 2),
+      JSON.stringify(
+        { digests: stack?.digests ?? {}, realmMutations: stack?.env?.realmMutations ?? [] },
+        null,
+        2,
+      ),
     );
-    await probe?.close();
-    await provider?.down();
+    await teardownStack(stack);
   });
 
   describe('The stack the journeys run against', () => {
     test('signals-dpg answers over HTTP', async () => {
-      expect((await fetch(`${env.endpoints.signalsApi}/health/live`)).status).toBe(200);
+      expect((await fetch(`${stack.env.endpoints.signalsApi}/health/live`)).status).toBe(200);
     });
 
     test('every relation the schema gate requires is present', async () => {
       for (const relation of REQUIRED_RELATIONS) {
-        const out = await provider.exec('postgres', [
+        const out = await stack.provider.exec('postgres', [
           'psql', '-U', 'postgres', '-d', 'postgresdb',
           '-tAc', `select to_regclass('public.${relation}')`,
         ]);
@@ -179,8 +78,13 @@ describe('journeys against a real stack', () => {
     });
 
     test('the ingest consumer group exists, which the awaiter reads', async () => {
-      const out = await provider.exec('redis', [
-        'redis-cli', '-a', 'journey-redis-pw', '--no-auth-warning',
+      const out = await stack.provider.exec('redis', [
+        'redis-cli',
+        // The password the stack actually starts redis with, not a copy of
+        // it: the two drifting apart fails here as an auth error that reads
+        // like a missing consumer group.
+        '-a', stack.stackEnv.REDIS_PASSWORD!,
+        '--no-auth-warning',
         'XINFO', 'GROUPS', 'signals:item-events',
       ]);
 
@@ -189,14 +93,14 @@ describe('journeys against a real stack', () => {
 
     test('publishes no fixed host port, so it coexists with other stacks', () => {
       for (const fixed of [5432, 5555, 8080, 2742, 3100]) {
-        expect(env.endpoints.signalsApi).not.toContain(`:${fixed}`);
+        expect(stack.env.endpoints.signalsApi).not.toContain(`:${fixed}`);
       }
     });
 
     test('the captured api key is accepted by search', async () => {
-      const res = await fetch(`${env.endpoints.searchApi}/v1/search`, {
+      const res = await fetch(`${stack.env.endpoints.searchApi}/v1/search`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': seeded.apiKey },
+        headers: { 'content-type': 'application/json', 'x-api-key': stack.seeded.apiKey },
         body: JSON.stringify({}),
       });
 
@@ -206,7 +110,11 @@ describe('journeys against a real stack', () => {
 
   describe('Coverage of the journey registry', () => {
     test('every journey is accounted for as run or skipped', () => {
-      const { run, skipped } = selectJourneys(ALL_JOURNEYS, targetId, env.capabilities);
+      const { run, skipped } = selectJourneys(
+        ALL_JOURNEYS,
+        stack.targetId,
+        stack.env.capabilities,
+      );
 
       // A journey that is neither would be missing coverage that the report
       // still counts as a clean run.
@@ -216,22 +124,20 @@ describe('journeys against a real stack', () => {
   });
 
   describe('journeys', () => {
-
     // One test per journey, all sharing the single stack above. Adding a
     // journey to journeys/index.ts adds a case here automatically.
     for (const journey of ALL_JOURNEYS) {
       test(`${journey.id} — ${journey.title}`, async (ctx) => {
-        const { run } = selectJourneys([journey], targetId, env.capabilities);
+        const { run } = selectJourneys([journey], stack.targetId, stack.env.capabilities);
         if (run.length === 0) {
           ctx.skip();
           return;
         }
 
-        // Seeded per run and printed, so a red run can be replayed exactly.
-        const seed = seedFromEnv(process.env);
         const result = await runJourney(
           journey,
-          { ...baseCtx, state: { seed } },
+          // Seeded per run and printed, so a red run can be replayed exactly.
+          { ...stack.baseCtx, state: { seed: stack.seed } },
           // The journey id travels with the label: the report shows one
           // list of requests across every journey in the run.
           { onStep: (label) => recorder.startStep(stepKey(journey.id, label)) },
