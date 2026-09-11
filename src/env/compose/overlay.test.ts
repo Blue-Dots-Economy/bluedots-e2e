@@ -55,6 +55,23 @@ describe('renderOverlay', () => {
     expect(keycloak).toContain(`KC_HOSTNAME: ${buildStackEnv(TARGET).KEYCLOAK_BASE_URL}`);
   });
 
+  test('declares each key once per service, on every branch', () => {
+    // Compose reads a duplicate mapping key as a YAML error, not as a
+    // merge, and only says so at boot -- three minutes into a CI run. This
+    // caught exactly that: a second `environment:` under keycloak, on the
+    // aggregator branch only.
+    for (const aggregatorRoot of [undefined, '/agg']) {
+      const yaml = renderOverlay({ ...OPTS, aggregatorRoot });
+      const services = yaml.split(/^  (?=[a-z])/m).slice(1);
+
+      for (const block of services) {
+        const keys = [...block.matchAll(/^    ([a-z_]+):/gm)].map((m) => m[1]);
+        const repeated = keys.filter((k, i) => keys.indexOf(k) !== i);
+        expect(repeated, `${block.split(':')[0]} (aggregatorRoot=${aggregatorRoot})`).toEqual([]);
+      }
+    }
+  });
+
   test('replaces the port list rather than appending to it', () => {
     // Compose MERGES sequences by default, so without an explicit override
     // the base file's fixed ports survive alongside the ephemeral ones.

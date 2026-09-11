@@ -94,6 +94,9 @@ ${ephemeral(6379)}
   keycloak:
 ${unnamed}
 ${ephemeral(8080)}
+    # ONE environment key for this service. The aggregator branch below
+    # appends to this block rather than opening a second one: compose reads
+    # a duplicate mapping key as a YAML error, not as a merge.
     environment:
       # Pins the issuer. The host port is ephemeral, and with
       # KC_HOSTNAME_STRICT false keycloak derives iss from the request URL,
@@ -123,8 +126,8 @@ ${ephemeral(8080)}
     # aggregator's render script substitutes 19 placeholders where signals'
     # substitutes 11, so it needs variables the base compose never passes to
     # this container. An .env file only feeds compose-file interpolation --
-    # it does not reach the container -- so they are declared here.
-    environment:
+    # it does not reach the container -- so they are declared here, under
+    # the environment key opened above.
       KEYCLOAK_REALM: \${KEYCLOAK_REALM}
       AGGREGATOR_API_SECRET: \${AGGREGATOR_API_SECRET}
       AGGREGATOR_PORTAL_SECRET: \${AGGREGATOR_PORTAL_SECRET}
