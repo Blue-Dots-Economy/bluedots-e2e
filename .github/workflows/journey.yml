@@ -6,7 +6,7 @@ name: release verification
 # so a list of runs is scannable.
 run-name: >-
   Verify ${{ inputs.tag || github.ref_name }} ·
-  ${{ inputs.target || 'all targets' }}
+  ${{ inputs.target || 'every covered dot' }}
 
 # The journey suite runs on a release-candidate tag, against the exact
 # images that tag published. It cannot be a branch-protection check: a tag
@@ -37,10 +37,15 @@ on:
         description: notification-service image tag (blank = release tag)
         required: false
       target:
-        description: Single target (purple_dot or blue_dot/ka-dhwd); blank runs all
+        description: Single dot to verify; blank verifies every dot a journey covers
         required: false
         type: choice
-        options: ['', purple_dot, blue_dot/ka-dhwd]
+        # Dots, not instances. The prepare job resolves one of these to the
+        # precise target -- blue_dot to blue_dot/ka-dhwd -- and still accepts
+        # a full id, so an instance can be named when it matters. This list
+        # is the one target enumeration that cannot be computed: GitHub
+        # renders it when the form opens, before any job exists.
+        options: ['', purple_dot, blue_dot]
         default: ''
 
 # Without packages: read the ghcr pull fails as an auth error, which the
@@ -83,11 +88,15 @@ jobs:
           set -euo pipefail
           discovered=$(pnpm -s journey --matrix)
           if [ -n "$CHOSEN" ]; then
-            # An unknown target fails here, in seconds, rather than in a
-            # matrix job that boots a stack before resolving anything.
-            targets=$(printf '%s' "$discovered" | jq -c --arg t "$CHOSEN" '[.[] | select(.target == $t)]')
+            # Matched on the label OR the precise target, so the form can
+            # offer "blue_dot" while the run verifies blue_dot/ka-dhwd --
+            # and naming the instance outright still works. An unknown one
+            # fails here in seconds rather than in a matrix job that boots a
+            # stack before resolving anything.
+            targets=$(printf '%s' "$discovered" \
+              | jq -c --arg t "$CHOSEN" '[.[] | select(.target == $t or .label == $t)]')
             if [ "$targets" = "[]" ]; then
-              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)')."
+              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.label)')."
               exit 1
             fi
           else
