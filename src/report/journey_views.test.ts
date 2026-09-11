@@ -80,4 +80,20 @@ describe('buildJourneyViews', () => {
 
     expect(journeys[0]?.durationMs).toBe(9300);
   });
+
+  test('does not claim a case that merely mentions the journey id', () => {
+    // The negative control is named "J2 fails when only the sweep indexed
+    // the item". Matched on the bare id, its 34s lands on J2's duration and
+    // it disappears from the checks block -- a test that ran shown nowhere.
+    const { journeys } = buildJourneyViews({
+      journeys: [j2],
+      cases: [
+        { name: 'journeys > J2 — A new profile becomes findable in search', ok: false, durationMs: 3000 },
+        { name: 'negative control > J2 fails when only the sweep indexed the item', ok: true, durationMs: 34000 },
+      ],
+      http: [],
+    });
+
+    expect(journeys[0]?.durationMs).toBe(3000);
+  });
 });

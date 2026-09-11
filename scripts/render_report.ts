@@ -8,7 +8,7 @@
  */
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { renderHtml, type HttpEntryView } from '../src/report/render_html.js';
-import { buildJourneyViews } from '../src/report/journey_views.js';
+import { buildJourneyViews, caseNameOf } from '../src/report/journey_views.js';
 import type { StepOutcome } from '../src/journey/define_journey.js';
 import { renderNewman } from '../src/report/render_console.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
@@ -81,7 +81,7 @@ const summary = buildSummary({
   // Capability comes from the journey registry: JUnit cannot carry one,
   // which is why summary.json rather than JUnit is canonical.
   journeys: ALL_JOURNEYS.map((journey) => {
-    const own = cases.filter((c) => c.name.includes(journey.id));
+    const own = cases.filter((c) => c.name.includes(caseNameOf(journey)));
     const run = runs.find((r) => r.id === journey.id);
     return {
       id: journey.id,

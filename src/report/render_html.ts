@@ -1,5 +1,5 @@
 import { SECRET_HEADERS } from './http_recorder.js';
-import type { JourneyView, StepView } from './journey_views.js';
+import { caseNameOf, type JourneyView, type StepView } from './journey_views.js';
 
 export type CaseReport = {
   name: string;
@@ -227,7 +227,7 @@ export function renderHtml(report: RunReport): string {
   // assertions -- still have to appear somewhere, so they get a block in
   // the same tree rather than a second, differently-shaped table.
   const looseCases = journeys
-    ? cases.filter((c) => !journeys.some((j) => c.name.includes(j.id)))
+    ? cases.filter((c) => !journeys.some((j) => c.name.includes(caseNameOf(j))))
     : [];
 
   const blocks: { view: JourneyView; anchor: string }[] = (

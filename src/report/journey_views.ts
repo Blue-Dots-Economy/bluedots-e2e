@@ -32,6 +32,10 @@ type JourneyInput = {
   stepLabels?: string[];
 };
 
+/** The test name tests/stack/journeys.stack.test.ts generates per journey. */
+export const caseNameOf = (journey: { id: string; title: string }) =>
+  `${journey.id} — ${journey.title}`;
+
 /**
  * Turn the run's three flat records into the tree the report renders.
  *
@@ -69,7 +73,10 @@ export function buildJourneyViews(input: {
       };
     });
 
-    const own = input.cases.filter((c) => c.name.includes(journey.id));
+    // Matched on "<id> — <title>", the name the runner gives the test, not
+    // on the bare id: the negative control is called "J2 fails when only
+    // the sweep indexed the item" and is not J2's case.
+    const own = input.cases.filter((c) => c.name.includes(caseNameOf(journey)));
     const status: JourneyView['status'] =
       own.length > 0 && own.every((c) => c.skipped)
         ? 'skipped'
