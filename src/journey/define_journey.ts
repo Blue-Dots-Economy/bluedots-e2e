@@ -15,16 +15,12 @@ export type StepContext = {
   seeded: Record<string, unknown>;
   state: Record<string, unknown>;
   /**
-   * The (dot, instance) this run is testing, with that target's own item
-   * schema. The schema travels with the target because item_state differs
-   * per network, and hardcoding one would mean test code per target.
+   * The (dot, instance) this run is testing, resolving its own schemas per
+   * domain. A resolver rather than one domain's schema: a step declares
+   * which domain it acts as, and the fixture has to come from that domain
+   * -- otherwise anything but the hardcoded one sends the wrong fields.
    */
-  target?: {
-    network: string;
-    domain: string;
-    itemType: string;
-    itemSchema: { required?: string[]; properties?: Record<string, unknown> };
-  };
+  target?: import('../targets/target_schemas.js').TargetSchemas;
   /** Present only where the environment offers redis + postgres. */
   probe?: import('../awaiters/ingest.js').IngestProbe;
   auth?: { apiKey: string; actingOrgId: string; participantToken: string };

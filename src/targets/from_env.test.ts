@@ -101,3 +101,22 @@ describe('imageTagsFromEnv', () => {
       .toEqual({ 'signals-search': 'x' });
   });
 });
+
+describe('seedFromEnv run distinctness', () => {
+  test('differs between two runs of the same tag and target', () => {
+    // The seed now derives the participant address, and the upsert is keyed
+    // on it. Without a per-run component, re-verifying the same tag would
+    // update the previous run's participant rather than create one.
+    const base = { JOURNEY_RELEASE_TAG: '202609-s1-rc1', JOURNEY_TARGET: 'purple_dot' };
+
+    expect(seedFromEnv({ ...base, GITHUB_RUN_ID: '1' })).not.toBe(
+      seedFromEnv({ ...base, GITHUB_RUN_ID: '2' }),
+    );
+  });
+
+  test('an explicit seed still reproduces exactly, which is the point of it', () => {
+    expect(seedFromEnv({ JOURNEY_SEED: 'abc', GITHUB_RUN_ID: '1' })).toBe(
+      seedFromEnv({ JOURNEY_SEED: 'abc', GITHUB_RUN_ID: '2' }),
+    );
+  });
+});

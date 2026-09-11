@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/target_discovery.js';
+import { aggregatorRoot, schemasRoot, signalsDpgRoot } from '../../src/config/paths.js';
+import { buildTargetSchemas, type NetworkConfig } from '../../src/targets/target_schemas.js';
 import { imageTagsFromEnv, releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
 import { SERVICES } from '../../src/cli/args.js';
@@ -19,15 +20,6 @@ import { runJourney, type StepContext } from '../../src/journey/define_journey.j
 import { seedFromEnv } from '../../src/targets/from_env.js';
 import { profileBecomesFindable } from '../../journeys/search/profile_becomes_findable.js';
 
-const schemas =
-  process.env.BLUEDOTS_SCHEMAS_PATH ??
-  fileURLToPath(new URL('../../../bluedots-schemas', import.meta.url));
-const signalsDpg =
-  process.env.SIGNALS_DPG_PATH ??
-  fileURLToPath(new URL('../../../Signals-DPG', import.meta.url));
-const aggregator =
-  process.env.AGGREGATOR_DPG_PATH ??
-  fileURLToPath(new URL('../../../aggregator-dpg', import.meta.url));
 
 /**
  * The control that decides whether J2's green means anything.
@@ -41,9 +33,6 @@ const aggregator =
  * must fail. If it ever passes, the suite is reporting that ingestion works
  * when it demonstrably does not, and every J2 green is worthless.
  */
-/** Every target in scope declares a seeker domain. */
-const DOMAIN = 'seeker';
-
 describe('Negative control: the sweep must not be able to fake a pass', () => {
   let provider: ComposeProvider;
   let ctx: StepContext;
@@ -53,12 +42,10 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
     // The target comes from the environment so a CI matrix job exercises
     // the target it claims, rather than every job testing purple_dot.
     const chosen = targetFromEnv(process.env);
-    const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
-    const networkConfig = JSON.parse(
-      await readFile(target.networkConfigPath, 'utf8'),
-    ) as { id: string; domains: { id: string; item_schemas: Record<string, unknown> }[] };
-    const domainSchemas = networkConfig.domains.find((d) => d.id === DOMAIN)!.item_schemas;
-    const itemType = Object.keys(domainSchemas)[0]!;
+    const target = await resolveTarget(schemasRoot(), chosen.dot, chosen.instance);
+    const targetSchemas = buildTargetSchemas(
+      JSON.parse(await readFile(target.networkConfigPath, 'utf8')) as NetworkConfig,
+    );
 
     // Thread the release tag through, or a run triggered BY a release tag
     // would verify :develop and promote the RC on an unrelated build.
@@ -73,7 +60,7 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
     // manifests -- it pulls nothing.
     const digests = await resolveDigests(
       Object.fromEntries(
-        SERVICES.map((s) => [s, imageRef(s, s === 'aggregator-dpg' ? 'api' : 'api', tags[s])]),
+        SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])]),
       ),
       dockerInspector,
     );
@@ -87,9 +74,9 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
       readRealm: async (p) => readFile(p, 'utf8'),
       assertBindSources,
       digests,
-      baseFile: join(signalsDpg, 'local-setup', 'docker-compose.yml'),
+      baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
       runDir: await mkdtemp(join(tmpdir(), 'journey-control-')),
-      aggregatorRoot: aggregator,
+      aggregatorRoot: aggregatorRoot(),
       // Real TEI by default -- a standard runner was shown to hold it, and
       // its vectors are the ones production computes. EMBEDDER=stub trades
       // that for a much smaller, faster boot.
@@ -137,7 +124,7 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
       state: { seed: seedFromEnv(process.env) },
-      target: { network: networkConfig.id, domain: DOMAIN, itemType, itemSchema: domainSchemas[itemType] as never },
+      target: targetSchemas,
       probe,
       auth: {
         apiKey: seeded.apiKey,

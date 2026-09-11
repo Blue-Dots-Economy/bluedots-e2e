@@ -27,16 +27,18 @@ export const createProfile = (spec: { as: string }) =>
 
       state.baseline = await captureBaseline(probe);
 
+      // Resolved from the domain this step acts as, not from whatever
+      // domain the spec pinned: the two diverging is how a provider
+      // profile got built out of the seeker schema.
+      const { itemType, itemSchema } = target.schemaFor(spec.as);
+
       const itemState = {
-        ...buildItemState(
-          target.itemSchema as never,
-          requireState(state, 'seed'),
-        ),
+        ...buildItemState(itemSchema as never, requireState(state, 'seed')),
         // Keep the item's own age consistent with the one consent is
         // recorded against, and adult either way: the schema permits a
         // minimum of 1, and a minor stays draft under the guardian gate
         // regardless of consent.
-        ...('age' in ((target.itemSchema.properties ?? {}) as object)
+        ...('age' in ((itemSchema.properties ?? {}) as object)
           ? { age: ADULT_AGE }
           : {}),
       };
@@ -55,16 +57,17 @@ export const createProfile = (spec: { as: string }) =>
           buildUpsertBody({
             network: target.network,
             domain: spec.as,
-            itemType: target.itemType,
+            itemType,
             // Generated from the target's own schema, so a second target
             // costs configuration rather than test code.
             itemState,
             name: `Journey ${spec.as}`,
-            // Unique per run: the upsert is keyed on the identifier, so a
-            // fixed address would update the previous run's participant
-            // instead of creating one, and the journey would assert against
-            // an item it did not create.
-            email: `journey-${spec.as}-${Date.now()}@example.test`,
+            // Unique per RUN and reproducible from the seed. The upsert is
+            // keyed on the address, so a fixed one would update the previous
+            // run's participant; a clock-derived one made JOURNEY_SEED
+            // reproduce the fixture but not the participant, which is most
+            // of what a replay is for.
+            email: `journey-${spec.as}-${requireState(state, 'seed')}@example.test`,
           }),
         ),
       });

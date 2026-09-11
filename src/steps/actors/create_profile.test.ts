@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { createProfile } from './create_profile.js';
 import type { StepContext } from '../../journey/define_journey.js';
 import type { IngestProbe } from '../../awaiters/ingest.js';
+import { buildTargetSchemas } from '../../targets/target_schemas.js';
 
 const probe: IngestProbe = {
   lastStreamId: async () => '1-0',
@@ -34,12 +35,17 @@ const ctx = (http: typeof fetch): StepContext => ({
   seeded: {},
   http,
   probe,
-  target: {
-    network: 'purple_dot',
-    domain: 'seeker',
-    itemType: 'profile_1.0',
-    itemSchema: { required: ['headline'], properties: { headline: { type: 'string' } } },
-  },
+  target: buildTargetSchemas({
+    id: 'purple_dot',
+    domains: [
+      {
+        id: 'seeker',
+        item_schemas: {
+          'profile_1.0': { required: ['headline'], properties: { headline: { type: 'string' } } },
+        },
+      },
+    ],
+  }),
   auth: { apiKey: 'k', actingOrgId: 'org', participantToken: 't' },
 });
 
@@ -56,4 +62,21 @@ describe('createProfile', () => {
     expect(calls).toEqual(['http://signals/api/v1/admin/participant']);
   });
 
+
+  test('derives the participant address from the seed, so a replay replays', async () => {
+    // Date.now() in the address meant JOURNEY_SEED reproduced the fixture
+    // but not the participant: the upsert is keyed on the address, so a
+    // replay created a new one instead of re-running against the same.
+    const seen: string[] = [];
+    const http = (async (_url: string, init?: RequestInit) => {
+      seen.push(JSON.parse(String(init?.body)).email);
+      return okResponse();
+    }) as unknown as typeof fetch;
+
+    await createProfile({ as: 'seeker' }).run(ctx(http));
+    await createProfile({ as: 'seeker' }).run(ctx(http));
+
+    expect(seen[0]).toBe(seen[1]);
+    expect(seen[0]).toContain('abc123');
+  });
 });

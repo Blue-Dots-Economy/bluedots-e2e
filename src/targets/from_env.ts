@@ -64,10 +64,17 @@ export function seedFromEnv(
   const explicit = env.JOURNEY_SEED?.trim();
   if (explicit) return explicit;
 
-  // Stable within a run, distinct between targets: two targets sharing
-  // fixture values would make a search assertion ambiguous about which
-  // run's item it matched.
-  return [env.JOURNEY_RELEASE_TAG ?? 'local', env.JOURNEY_TARGET ?? 'default']
+  // Distinct between targets, so two targets' fixture values cannot make a
+  // search assertion ambiguous about which run's item it matched -- and
+  // distinct between runs, because the seed derives the participant address
+  // and the upsert is keyed on it, so re-verifying a tag would otherwise
+  // update the previous run's participant instead of creating one.
+  // JOURNEY_SEED above overrides all of this: that is what a replay sets.
+  return [
+    env.JOURNEY_RELEASE_TAG ?? 'local',
+    env.JOURNEY_TARGET ?? 'default',
+    env.GITHUB_RUN_ID ?? String(Date.now()),
+  ]
     .join('-')
     .replace(/[^a-zA-Z0-9-]/g, '-');
 }

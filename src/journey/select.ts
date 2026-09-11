@@ -1,4 +1,4 @@
-import type { Capability } from '../env/capabilities.js';
+import { checkCapabilities, type Capability } from '../env/capabilities.js';
 import type { Journey } from './define_journey.js';
 
 /** A journey plus what the environment must offer for it to mean anything. */
@@ -30,9 +30,12 @@ export function selectJourneys(
       skipped.push({ id: journey.id, reason: `does not declare target ${target}` });
       continue;
     }
-    const missing = journey.requires.filter((c) => !capabilities.includes(c));
-    if (missing.length > 0) {
-      skipped.push({ id: journey.id, reason: `environment lacks ${missing.join(', ')}` });
+    // Through checkCapabilities, not a copy of it: the filter and the
+    // wording were duplicated here, so the unit-tested code and the code
+    // that actually ran were two different pieces of code.
+    const check = checkCapabilities(journey.requires, capabilities);
+    if (!check.runnable) {
+      skipped.push({ id: journey.id, reason: check.reason });
       continue;
     }
     run.push(journey);

@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/target_discovery.js';
+import { aggregatorRoot, schemasRoot, signalsDpgRoot } from '../../src/config/paths.js';
+import { buildTargetSchemas, type NetworkConfig } from '../../src/targets/target_schemas.js';
 import { imageTagsFromEnv, releaseTagFromEnv, seedFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
 import { SERVICES } from '../../src/cli/args.js';
@@ -19,6 +20,7 @@ import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createRecorder } from '../../src/report/http_recorder.js';
+import { stepKey } from '../../src/report/journey_views.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
 import { runJourney, type StepContext, type StepOutcome } from '../../src/journey/define_journey.js';
 import { selectJourneys } from '../../src/journey/select.js';
@@ -37,18 +39,6 @@ import type { EnvironmentContext } from '../../src/env/provider.js';
  * The negative controls keep their own file because they need a
  * deliberately misconfigured stack.
  */
-const schemas =
-  process.env.BLUEDOTS_SCHEMAS_PATH ??
-  fileURLToPath(new URL('../../../bluedots-schemas', import.meta.url));
-const signalsDpg =
-  process.env.SIGNALS_DPG_PATH ??
-  fileURLToPath(new URL('../../../Signals-DPG', import.meta.url));
-const aggregator =
-  process.env.AGGREGATOR_DPG_PATH ??
-  fileURLToPath(new URL('../../../aggregator-dpg', import.meta.url));
-
-/** Every target in scope declares a seeker domain. */
-const DOMAIN = 'seeker';
 
 describe('journeys against a real stack', () => {
   let provider: ComposeProvider;
@@ -76,28 +66,11 @@ describe('journeys against a real stack', () => {
   beforeAll(async () => {
     const chosen = targetFromEnv(process.env);
     targetId = chosen.instance ? `${chosen.dot}/${chosen.instance}` : chosen.dot;
-    const target = await resolveTarget(schemas, chosen.dot, chosen.instance);
+    const target = await resolveTarget(schemasRoot(), chosen.dot, chosen.instance);
 
-    const networkConfig = JSON.parse(await readFile(target.networkConfigPath, 'utf8')) as {
-      id: string;
-      domains: { id: string; item_schemas: Record<string, unknown> }[];
-    };
-    const domain = networkConfig.domains.find((d) => d.id === DOMAIN);
-    // Named here rather than dying on a non-null assertion: a target
-    // without a seeker domain otherwise fails in beforeAll with a
-    // TypeError pointing nowhere near the cause.
-    if (!domain) {
-      throw new Error(
-        `TARGET_UNUSABLE: ${targetId} declares no "${DOMAIN}" domain ` +
-          `(it has ${networkConfig.domains.map((d) => d.id).join(', ')}). ` +
-          `Every journey in this suite creates a ${DOMAIN} profile.`,
-      );
-    }
-    const itemType = Object.keys(domain.item_schemas)[0];
-    if (!itemType) {
-      throw new Error(`TARGET_UNUSABLE: ${targetId}'s "${DOMAIN}" domain declares no item schema.`);
-    }
-    const domainSchemas = domain.item_schemas;
+    const targetSchemas = buildTargetSchemas(
+      JSON.parse(await readFile(target.networkConfigPath, 'utf8')) as NetworkConfig,
+    );
 
     const tags = resolveTags({
       branch: null,
@@ -127,9 +100,9 @@ describe('journeys against a real stack', () => {
       readRealm: async (p) => readFile(p, 'utf8'),
       assertBindSources,
       digests,
-      baseFile: join(signalsDpg, 'local-setup', 'docker-compose.yml'),
+      baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
       runDir: await mkdtemp(join(tmpdir(), 'journey-')),
-      aggregatorRoot: aggregator,
+      aggregatorRoot: aggregatorRoot(),
       embedder: process.env.EMBEDDER === 'stub' ? 'stub' : 'tei',
     });
 
@@ -162,12 +135,7 @@ describe('journeys against a real stack', () => {
       http: recorder.fetch,
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
-      target: {
-        network: networkConfig.id,
-        domain: DOMAIN,
-        itemType,
-        itemSchema: domainSchemas[itemType] as never,
-      },
+      target: targetSchemas,
       probe,
       auth: {
         apiKey: seeded.apiKey,
@@ -266,7 +234,7 @@ describe('journeys against a real stack', () => {
           { ...baseCtx, state: { seed } },
           // The journey id travels with the label: the report shows one
           // list of requests across every journey in the run.
-          { onStep: (label) => recorder.startStep(`${journey.id} — ${label}`) },
+          { onStep: (label) => recorder.startStep(stepKey(journey.id, label)) },
         );
 
         runs.push({

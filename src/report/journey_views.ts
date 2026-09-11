@@ -38,6 +38,15 @@ type JourneyInput = {
   stepLabels?: string[];
 };
 
+/**
+ * How a recorded request is attributed to a step.
+ *
+ * Written by the suite and matched here, so it lives in one place: an
+ * em-dash typo on either side silently orphans every request in the report,
+ * and the report still renders.
+ */
+export const stepKey = (journeyId: string, label: string) => `${journeyId} — ${label}`;
+
 /** The test name tests/stack/journeys.stack.test.ts generates per journey. */
 export const caseNameOf = (journey: { id: string; title: string }) =>
   `${journey.id} — ${journey.title}`;
@@ -69,7 +78,7 @@ export function buildJourneyViews(input: {
       // The recorder prefixes the journey id so one run's requests stay
       // distinguishable when two journeys share a step label.
       const http = input.http.filter(
-        (h) => h.step === `${journey.id} — ${label}` || h.step === label,
+        (h) => h.step === stepKey(journey.id, label) || h.step === label,
       );
       for (const h of http) claimed.add(h);
 
