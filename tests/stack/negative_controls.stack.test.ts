@@ -44,7 +44,7 @@ const aggregator =
 /** Every target in scope declares a seeker domain. */
 const DOMAIN = 'seeker';
 
-describe('negative control: the sweep must not be able to fake a pass', () => {
+describe('Negative control: the sweep must not be able to fake a pass', () => {
   let provider: ComposeProvider;
   let ctx: StepContext;
   let probe: ReturnType<typeof createIngestProbe>;

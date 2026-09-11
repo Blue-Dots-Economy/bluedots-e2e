@@ -166,7 +166,7 @@ describe('journeys against a real stack', () => {
     await provider?.down();
   });
 
-  describe('the environment the journeys run against', () => {
+  describe('The stack the journeys run against', () => {
     test('signals-dpg answers over HTTP', async () => {
       expect((await fetch(`${env.endpoints.signalsApi}/health/live`)).status).toBe(200);
     });
@@ -208,7 +208,7 @@ describe('journeys against a real stack', () => {
     });
   });
 
-  describe('journeys', () => {
+  describe('Coverage of the journey registry', () => {
     test('every journey is accounted for as run or skipped', () => {
       const { run, skipped } = selectJourneys(ALL_JOURNEYS, targetId, env.capabilities);
 
@@ -217,6 +217,9 @@ describe('journeys against a real stack', () => {
       expect(run.length + skipped.length).toBe(ALL_JOURNEYS.length);
       for (const s of skipped) console.log(`NOT COVERED: ${s.id} — ${s.reason}`);
     });
+  });
+
+  describe('journeys', () => {
 
     // One test per journey, all sharing the single stack above. Adding a
     // journey to journeys/index.ts adds a case here automatically.

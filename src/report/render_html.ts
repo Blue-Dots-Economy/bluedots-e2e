@@ -175,6 +175,7 @@ const JOURNEY_MARK = {
 function renderJourney(journey: JourneyView, anchor: string): string {
   const [cls, glyph] = JOURNEY_MARK[journey.status];
   const requests = journey.steps.reduce((n, s) => n + s.http.length, 0);
+  const unit = journey.kind === 'checks' ? 'check' : 'step';
   // Failures open, passes closed: whoever opens this page is triaging a
   // failure, and a fully expanded tree buries it.
   const open = journey.status === 'failed' ? ' open' : '';
@@ -186,7 +187,7 @@ function renderJourney(journey: JourneyView, anchor: string): string {
         <span class="j-id">${escape(journey.id)}</span>
         <span class="j-title">${escape(journey.title)}</span>
         <span class="j-cap">${escape(journey.capability)}</span>
-        <span class="j-stats"><span>${plural(journey.steps.length, 'step')}</span><span>${plural(requests, 'request')}</span><span class="mono">${seconds(journey.durationMs)}</span></span>
+        <span class="j-stats"><span>${plural(journey.steps.length, unit)}</span><span>${plural(requests, 'request')}</span><span class="mono">${seconds(journey.durationMs)}</span></span>
         ${CHEVRON}
       </summary>
       <div class="j-body">
@@ -195,15 +196,52 @@ function renderJourney(journey: JourneyView, anchor: string): string {
     </details>`;
 }
 
-/** A JUnit case rendered as a step, for checks that belong to no journey. */
+/**
+ * A JUnit case rendered as a step, for checks that belong to no journey.
+ *
+ * The describe chain is dropped: vitest names a case
+ * "outer > inner > what it asserts", and the prefix is the same on every
+ * sibling, so it only pushes the part that matters off the line. The
+ * chain becomes the block heading instead.
+ */
 function caseAsStep(c: CaseReport): StepView {
   return {
-    label: c.name,
+    label: c.name.split(' > ').at(-1) ?? c.name,
     status: c.skipped ? 'not-reached' : c.ok ? 'passed' : 'failed',
     durationMs: c.durationMs,
     ...(c.failure ? { error: c.failure } : {}),
     http: [],
   };
+}
+
+/**
+ * One block per describe, rather than one bucket called "checks".
+ *
+ * A stack precondition and the negative control that proves the suite can
+ * fail at all are different claims, and a heading naming both of them at
+ * once says nothing. The describe the tests are already written under is
+ * that heading -- printed verbatim, the way step labels are, so the page
+ * cannot drift from what the tests say.
+ */
+function groupChecks(cases: CaseReport[]): JourneyView[] {
+  const groups = new Map<string, CaseReport[]>();
+  for (const c of cases) {
+    const path = c.name.split(' > ').slice(0, -1);
+    // A case with no describe is its own heading; there is nothing else
+    // to call it.
+    const key = path.at(-1) ?? c.name;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+
+  return [...groups].map(([title, own]) => ({
+    id: '',
+    title,
+    kind: 'checks' as const,
+    capability: 'checks',
+    status: own.every((c) => c.ok) ? 'passed' : 'failed',
+    durationMs: own.reduce((sum, c) => sum + c.durationMs, 0),
+    steps: own.map(caseAsStep),
+  }));
 }
 
 /**
@@ -232,21 +270,7 @@ export function renderHtml(report: RunReport): string {
 
   const blocks: { view: JourneyView; anchor: string }[] = (
     journeys
-      ? [
-          ...journeys,
-          ...(looseCases.length
-            ? [
-                {
-                  id: 'CHECKS',
-                  title: 'Environment and harness checks',
-                  capability: 'harness',
-                  status: looseCases.every((c) => c.ok) ? 'passed' : 'failed',
-                  durationMs: looseCases.reduce((sum, c) => sum + c.durationMs, 0),
-                  steps: looseCases.map(caseAsStep),
-                } satisfies JourneyView,
-              ]
-            : []),
-        ]
+      ? [...journeys, ...groupChecks(looseCases)]
       : // No tree supplied: each suite becomes a block, so the page has the
         // same shape whether or not the runner joined its records.
         report.suites.map(

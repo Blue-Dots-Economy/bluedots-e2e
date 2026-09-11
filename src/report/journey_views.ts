@@ -13,6 +13,12 @@ export type JourneyView = {
   id: string;
   title: string;
   capability: string;
+  /**
+   * `checks` is a block of test cases that belong to no journey. Its rows
+   * are not steps of anything, and saying "step" invites the reader to
+   * look for the journey they belong to.
+   */
+  kind?: 'journey' | 'checks';
   status: 'passed' | 'failed' | 'skipped';
   durationMs: number;
   steps: StepView[];

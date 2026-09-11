@@ -233,6 +233,74 @@ describe('the scenario tree', () => {
     expect(cards).toMatch(/>0<[^]*?Passed/);
   });
 
+  test('groups checks by what they are, not into one bucket', () => {
+    // "Environment and harness checks" told a reader nothing: a stack
+    // precondition and the negative control that proves the suite can fail
+    // at all are different claims and belong under different headings.
+    const html = renderHtml({
+      ...TREE,
+      journeys: [J2],
+      suites: [
+        {
+          name: 'tests/stack/journeys.stack.test.ts',
+          durationMs: 140000,
+          cases: [
+            { name: 'the stack the journeys run against > signals-dpg answers over HTTP', ok: true, durationMs: 400 },
+            { name: 'negative control: the sweep cannot fake a pass > J2 fails when only the sweep indexed it', ok: true, durationMs: 34000 },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain('the stack the journeys run against');
+    expect(html).toContain('negative control: the sweep cannot fake a pass');
+    expect(html).not.toContain('Environment and harness checks');
+  });
+
+  test('counts a check block in checks, not in steps', () => {
+    // A precondition is not a step of anything; calling it one invites the
+    // reader to look for the journey it belongs to.
+    const html = renderHtml({
+      ...TREE,
+      journeys: [J2],
+      suites: [
+        {
+          name: 'tests/stack/journeys.stack.test.ts',
+          durationMs: 1,
+          cases: [
+            { name: 'The stack the journeys run against > answers over HTTP', ok: true, durationMs: 400 },
+            { name: 'The stack the journeys run against > has the tables', ok: true, durationMs: 400 },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain('<span>2 checks</span>');
+    expect(html).toContain('<span>3 steps</span>');
+  });
+
+  test('shows a check by its own name, not its describe chain', () => {
+    // "journeys against a real stack > the environment ... > x" is how
+    // vitest names a case. Nobody reads the prefix; it just pushes the
+    // part that matters off the line.
+    const html = renderHtml({
+      ...TREE,
+      journeys: [J2],
+      suites: [
+        {
+          name: 'tests/stack/journeys.stack.test.ts',
+          durationMs: 1,
+          cases: [
+            { name: 'outer > inner > signals-dpg answers over HTTP', ok: true, durationMs: 400 },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain('>signals-dpg answers over HTTP<');
+    expect(html).not.toContain('outer &gt; inner');
+  });
+
   test('keeps checks that belong to no journey in the same tree', () => {
     // The environment assertions are real coverage; dropping them from the
     // page would make the run look narrower than it was.
@@ -247,7 +315,6 @@ describe('the scenario tree', () => {
       ],
     });
 
-    expect(html).toContain('Environment and harness checks');
     expect(html).toContain('signals-dpg answers over HTTP');
   });
 
