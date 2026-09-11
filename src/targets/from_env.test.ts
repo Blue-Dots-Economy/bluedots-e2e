@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { releaseTagFromEnv, seedFromEnv, targetFromEnv } from './from_env.js';
+import { imageTagsFromEnv, releaseTagFromEnv, seedFromEnv, targetFromEnv } from './from_env.js';
 
 describe('targetFromEnv', () => {
   test('reads a dot-only target', () => {
@@ -69,5 +69,35 @@ describe('seedFromEnv', () => {
 
   test('is never empty, since an empty seed silently disables determinism', () => {
     expect(seedFromEnv({}).length).toBeGreaterThan(0);
+  });
+});
+
+describe('imageTagsFromEnv', () => {
+  test('reads per-service tags', () => {
+    const tags = imageTagsFromEnv({
+      JOURNEY_IMAGE_TAGS: 'signals-dpg=202609-s1-rc2,signals-search=202609-s1-rc1',
+    });
+
+    expect(tags).toEqual({
+      'signals-dpg': '202609-s1-rc2',
+      'signals-search': '202609-s1-rc1',
+    });
+  });
+
+  test('is empty when unset', () => {
+    expect(imageTagsFromEnv({})).toEqual({});
+  });
+
+  test('rejects an unknown service rather than ignoring it', () => {
+    // A typo'd service name would otherwise be silently dropped and that
+    // service would quietly run on its default tag.
+    expect(() => imageTagsFromEnv({ JOURNEY_IMAGE_TAGS: 'signals-dgp=x' })).toThrow(
+      /signals-dgp/,
+    );
+  });
+
+  test('ignores empty entries, which a dispatch form produces', () => {
+    expect(imageTagsFromEnv({ JOURNEY_IMAGE_TAGS: 'signals-dpg=,,signals-search=x' }))
+      .toEqual({ 'signals-search': 'x' });
   });
 });

@@ -18,8 +18,24 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify, e.g. 202609-s1-rc1
+        description: Release tag — the default for every service and the ref for checkouts
         required: true
+      # Per-service overrides. A release is not always one tag across four
+      # repos: a fix for an issue found in rc1 ships as rc2 for that service
+      # alone, and a run should be able to say exactly which candidate of
+      # each service it verified. Blank means "use the release tag above".
+      signals_dpg_tag:
+        description: signals-dpg image tag (blank = release tag)
+        required: false
+      aggregator_dpg_tag:
+        description: aggregator-dpg image tag (blank = release tag)
+        required: false
+      signals_search_tag:
+        description: signals-search image tag (blank = release tag)
+        required: false
+      notification_service_tag:
+        description: notification-service image tag (blank = release tag)
+        required: false
       target:
         description: Single target (purple_dot or blue_dot/ka-dhwd); blank runs all
         required: false
@@ -123,6 +139,10 @@ jobs:
             echo "signals_dpg_sha=$(git -C .checkouts/Signals-DPG rev-parse HEAD)"
             echo "aggregator_dpg_sha=$(git -C .checkouts/aggregator-dpg rev-parse HEAD)"
             echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
+            echo "signals_dpg_tag=${{ inputs.signals_dpg_tag || env.RESOLVED_TAG }}"
+            echo "aggregator_dpg_tag=${{ inputs.aggregator_dpg_tag || env.RESOLVED_TAG }}"
+            echo "signals_search_tag=${{ inputs.signals_search_tag || env.RESOLVED_TAG }}"
+            echo "notification_service_tag=${{ inputs.notification_service_tag || env.RESOLVED_TAG }}"
           } | tee reports/provenance.txt
 
       # Standard runners ship ~25 GB of toolchains this job never touches,
@@ -149,6 +169,13 @@ jobs:
           BLUEDOTS_SCHEMAS_PATH: ${{ github.workspace }}/.checkouts/bluedots-schemas
           JOURNEY_TARGET: ${{ matrix.target }}
           JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
+          # Empty entries are dropped by the parser, so an untouched field
+          # simply falls back to the release tag.
+          JOURNEY_IMAGE_TAGS: >-
+            signals-dpg=${{ inputs.signals_dpg_tag }},
+            aggregator-dpg=${{ inputs.aggregator_dpg_tag }},
+            signals-search=${{ inputs.signals_search_tag }},
+            notification-service=${{ inputs.notification_service_tag }}
           # Real TEI by default; a standard runner was shown to hold it.
           # Set to `stub` if a future runner is tighter.
           EMBEDDER: ${{ vars.EMBEDDER || 'tei' }}

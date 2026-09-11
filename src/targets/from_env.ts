@@ -71,3 +71,38 @@ export function seedFromEnv(
     .join('-')
     .replace(/[^a-zA-Z0-9-]/g, '-');
 }
+
+/**
+ * Per-service image tags, as `service=tag` pairs.
+ *
+ * A release is not always one tag across four repos: a fix for an issue
+ * found in rc1 ships as rc2 for that service alone, and a run needs to be
+ * able to say exactly which candidate of each service it verified.
+ *
+ * An unknown service name is rejected rather than dropped -- silently
+ * ignoring a typo would leave that service on its default tag while the
+ * report claimed the release was verified.
+ */
+export function imageTagsFromEnv(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined>,
+): Record<string, string> {
+  const raw = env.JOURNEY_IMAGE_TAGS?.trim();
+  if (!raw) return {};
+
+  const known = ['signals-dpg', 'aggregator-dpg', 'signals-search', 'notification-service'];
+  const out: Record<string, string> = {};
+
+  for (const entry of raw.split(',').map((e) => e.trim()).filter(Boolean)) {
+    const [service, tag] = entry.split('=').map((p) => p.trim());
+    if (!service) continue;
+    if (!known.includes(service)) {
+      throw new Error(
+        `JOURNEY_IMAGE_TAGS names unknown service "${service}". Known: ${known.join(', ')}`,
+      );
+    }
+    // A dispatch form submits an empty value for an untouched field.
+    if (tag) out[service] = tag;
+  }
+
+  return out;
+}

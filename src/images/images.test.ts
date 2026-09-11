@@ -67,3 +67,42 @@ describe('resolveDigests', () => {
     ).rejects.toThrow(/IMAGE_NOT_FOUND.*notification-service/s);
   });
 });
+
+describe('resolveTags with per-service overrides', () => {
+  test('a per-service tag wins over the release tag', () => {
+    // Services are not always cut at the same candidate: a fix for an issue
+    // found in rc1 ships as rc2 for that service alone.
+    const tags = resolveTags({
+      branch: null,
+      imagesFromTag: '202609-s1-rc1',
+      perService: { 'signals-dpg': '202609-s1-rc2' },
+    });
+
+    expect(tags['signals-dpg']).toBe('202609-s1-rc2');
+    expect(tags['signals-search']).toBe('202609-s1-rc1');
+  });
+
+  test('per-service tags alone leave the rest on their defaults', () => {
+    const tags = resolveTags({
+      branch: null,
+      imagesFromTag: null,
+      perService: { 'signals-search': '202609-s1-rc3' },
+    });
+
+    expect(tags['signals-search']).toBe('202609-s1-rc3');
+    expect(tags['signals-dpg']).toBe('develop');
+    expect(tags['notification-service']).toBe('main');
+  });
+
+  test('an empty override is ignored rather than blanking the tag', () => {
+    // A dispatch form submits "" for an untouched optional field; taking
+    // that literally would resolve `image:` with no tag.
+    const tags = resolveTags({
+      branch: null,
+      imagesFromTag: '202609-s1-rc1',
+      perService: { 'signals-dpg': '' },
+    });
+
+    expect(tags['signals-dpg']).toBe('202609-s1-rc1');
+  });
+});

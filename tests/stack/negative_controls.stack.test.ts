@@ -7,8 +7,9 @@ import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
 import { resolveTarget } from '../../src/targets/targets.js';
-import { releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
+import { imageTagsFromEnv, releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
+import { SERVICES } from '../../src/cli/args.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities } from '../../src/seed/seed.js';
@@ -61,12 +62,19 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
 
     // Thread the release tag through, or a run triggered BY a release tag
     // would verify :develop and promote the RC on an unrelated build.
-    const tags = resolveTags({ branch: null, imagesFromTag: releaseTagFromEnv(process.env) });
+    const tags = resolveTags({
+      branch: null,
+      imagesFromTag: releaseTagFromEnv(process.env),
+      perService: imageTagsFromEnv(process.env),
+    });
+    // All four are resolved, though only signals-dpg and signals-search
+    // boot for J2: a run that says it verified a release should be able to
+    // name the digest of every service in it, and resolving only inspects
+    // manifests -- it pulls nothing.
     const digests = await resolveDigests(
-      {
-        'signals-dpg': imageRef('signals-dpg', 'api', tags['signals-dpg']),
-        'signals-search': imageRef('signals-search', 'api', tags['signals-search']),
-      },
+      Object.fromEntries(
+        SERVICES.map((s) => [s, imageRef(s, s === 'aggregator-dpg' ? 'api' : 'api', tags[s])]),
+      ),
       dockerInspector,
     );
 

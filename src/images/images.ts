@@ -40,9 +40,25 @@ export function imageRef(service: Service, component: string, tag: string): stri
 export function resolveTags(opts: {
   branch: Record<string, string> | null;
   imagesFromTag: string | null;
+  /**
+   * Per-service tags, highest precedence.
+   *
+   * Services are not always cut at the same candidate -- a fix for an issue
+   * found in rc1 ships as rc2 for that service alone -- so a release is not
+   * always one tag across four repos.
+   */
+  perService?: Partial<Record<Service, string>>;
 }): Record<Service, string> {
   const out = {} as Record<Service, string>;
   for (const service of SERVICES) {
+    // Trimmed and emptiness-checked: a dispatch form submits "" for an
+    // untouched optional field, and taking that literally resolves an
+    // image reference with no tag.
+    const override = opts.perService?.[service]?.trim();
+    if (override) {
+      out[service] = override;
+      continue;
+    }
     if (opts.imagesFromTag) {
       out[service] = opts.imagesFromTag;
       continue;
