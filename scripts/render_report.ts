@@ -11,6 +11,7 @@ import { renderHtml, type HttpEntryView } from '../src/report/render_html.js';
 import { buildJourneyViews, caseNameOf } from '../src/report/journey_views.js';
 import type { StepOutcome } from '../src/journey/define_journey.js';
 import { renderNewman } from '../src/report/render_console.js';
+import { renderMarkdown } from '../src/report/render_markdown.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
 import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
 import { renderJUnit } from '../src/report/render_junit.js';
@@ -57,6 +58,8 @@ const runs = runsRaw
 
 const httpRaw = await read(`${REPORTS}/http.json`);
 const http = httpRaw ? (JSON.parse(httpRaw) as HttpEntryView[]) : undefined;
+
+const startedAt = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
 const report = {
   releaseTag: provenance.release_tag ?? process.env.JOURNEY_RELEASE_TAG ?? '(local run)',
@@ -121,7 +124,7 @@ await writeFile(
     ...report,
     journeys: journeyViews,
     orphanHttp,
-    startedAt: `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+    startedAt,
   }),
 );
 
@@ -136,9 +139,21 @@ await writeFile(`${REPORTS}/junit-derived.xml`, renderJUnit(summary));
 const text = renderNewman(report);
 console.log(text);
 
+// The summary page is the only view most readers get without downloading
+// anything, so it leads with the same counts the report page does. The
+// console rendering stays, collapsed, for whoever wants the whole trace.
+const markdown = renderMarkdown({
+  ...report,
+  journeys: journeyViews,
+  orphanHttp,
+  startedAt,
+});
+
+await writeFile(`${REPORTS}/summary.md`, markdown);
+
 if (process.env.GITHUB_STEP_SUMMARY) {
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
-    `## Journey verification\n\n\`\`\`\n${text}\`\`\`\n\n_Full report: \`report.html\` in the run artifact._\n`,
+    `${markdown}\n<details><summary>Full run output</summary>\n\n\`\`\`\n${text}\`\`\`\n\n</details>\n`,
   );
 }

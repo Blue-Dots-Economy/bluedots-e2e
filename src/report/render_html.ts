@@ -282,11 +282,16 @@ export function renderHtml(report: RunReport): string {
     </details>`
     : '';
 
+  // Counted from the journeys, not from the blocks: the harness-checks
+  // block renders in the tree so its checks stay visible, but counting it
+  // would inflate both the scenario count and the pass count. With no tree
+  // supplied the blocks are all there is, so they stand in.
+  const counted = journeys ?? blocks.map((b) => b.view);
   const counts = {
-    scenarios: blocks.length,
-    passed: blocks.filter((b) => b.view.status === 'passed').length,
-    failed: blocks.filter((b) => b.view.status === 'failed').length,
-    skipped: blocks.filter((b) => b.view.status === 'skipped').length,
+    scenarios: counted.length,
+    passed: counted.filter((v) => v.status === 'passed').length,
+    failed: counted.filter((v) => v.status === 'failed').length,
+    skipped: counted.filter((v) => v.status === 'skipped').length,
   };
 
   const card = (n: number, label: string, tone = '') =>

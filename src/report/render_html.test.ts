@@ -213,6 +213,26 @@ describe('the scenario tree', () => {
     expect(cards).toMatch(/>1<[^]*?Failed requests/);
   });
 
+  test('does not count the harness checks block as a scenario', () => {
+    // It renders in the tree so the checks are visible, but it is not a
+    // journey: counting it inflates both the scenario and the pass count.
+    const html = renderHtml({
+      ...TREE,
+      journeys: [J2],
+      suites: [
+        {
+          name: 'tests/stack/journeys.stack.test.ts',
+          durationMs: 140000,
+          cases: [{ name: 'signals-dpg answers over HTTP', ok: true, durationMs: 400 }],
+        },
+      ],
+    });
+    const cards = html.slice(html.indexOf('class="cards"'), html.indexOf('class="controls"'));
+
+    expect(cards).toMatch(/>1<[^]*?Scenarios/);
+    expect(cards).toMatch(/>0<[^]*?Passed/);
+  });
+
   test('keeps checks that belong to no journey in the same tree', () => {
     // The environment assertions are real coverage; dropping them from the
     // page would make the run look narrower than it was.
