@@ -103,9 +103,10 @@ jobs:
     name: verify ${{ matrix.label }}
     needs: prepare
     runs-on: ubuntu-latest
-    # Three stack boots run sequentially (fileParallelism is off), each
-    # 80-200s locally. The 360-minute default would let a wedged run hold a
-    # runner for six hours.
+    # Two stack boots run sequentially (fileParallelism is off) -- the
+    # journeys' shared stack and the negative control's -- each 80-200s
+    # locally. The 360-minute default would let a wedged run hold a runner
+    # for six hours.
     timeout-minutes: 60
     strategy:
       # One target per job, never in parallel within a job: a run boots one

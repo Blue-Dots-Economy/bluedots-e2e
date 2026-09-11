@@ -50,3 +50,37 @@ test('refuses to swallow a flag as another flag\'s value', () => {
   // run then looked for a target called "--list" and never listed anything.
   expect(() => parseArgs(['--dot', '--list'])).toThrow(/needs a value/i);
 });
+
+describe('flags that are parsed but not yet wired', () => {
+  test('rejects --env for an environment the CLI cannot build', () => {
+    // args.env was set and read nowhere: `journey --env external` booted a
+    // local compose stack, which is the "quietly tests the wrong thing"
+    // this parser refuses a typo'd flag to prevent.
+    expect(() => parseArgs(['--env', 'external'])).toThrow(/not implemented/i);
+  });
+
+  test('still accepts the environment it does build', () => {
+    expect(parseArgs(['--env', 'local']).env).toBe('local');
+  });
+
+  test('rejects --journey, which nothing reads', () => {
+    // The CLI cannot run a journey at all yet; accepting a selector for one
+    // promises something it does not do.
+    expect(() => parseArgs(['--journey', 'J2'])).toThrow(/not implemented/i);
+  });
+});
+
+describe('--branch with an empty value', () => {
+  test('is rejected rather than resolving every image to an empty tag', () => {
+    // A bare '' returned { __all__: '' }, and resolveTags uses ??, which
+    // does not skip the empty string -- so every ref became
+    // ghcr.io/.../api: , which docker rejects as an invalid reference.
+    // That matches neither the auth nor the manifest-unknown pattern, so
+    // it was retried three times and reported as REGISTRY_UNAVAILABLE.
+    expect(() => parseArgs(['--branch', ' '])).toThrow(/branch/i);
+  });
+
+  test('still accepts a real bare branch', () => {
+    expect(parseArgs(['--branch', 'develop']).branch).toEqual({ __all__: 'develop' });
+  });
+});

@@ -18,7 +18,11 @@ import { captureBaseline } from '../../awaiters/ingest.js';
  */
 export const createProfile = (spec: { as: string }) =>
   step({
-    label: 'Created a seeker profile',
+    // Named for the domain it acts as. blue_dot declares provider and
+    // service_provider as well, and in a design where the label IS the
+    // report line, printing "seeker" for a provider profile is wrong in
+    // the business-facing report and in every recorder step key.
+    label: `Created a ${spec.as} profile`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const auth = requireContext(ctx.auth, 'authentication');

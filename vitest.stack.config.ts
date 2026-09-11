@@ -19,8 +19,9 @@ export default defineConfig({
     // Without a reporter, reports/ stays empty and the artifact upload has
     // nothing to carry -- a red run would upload silently nothing, which is
     // the exact failure the workflow's always() upload exists to prevent.
-    // summary.json and the richer tiers are still to be wired (#14); this
-    // is the floor, not the finished article.
+    // JUnit is what this config produces; summary.json, the evidence sheet
+    // and the derived JUnit are built from it by scripts/render_report.ts,
+    // together with the step traces and requests the suite writes itself.
     reporters: ['default', ['junit', { outputFile: 'reports/junit.xml' }]],
   },
 });

@@ -1,13 +1,33 @@
 import { CAPABILITIES, type Capability } from '../journey/guards.js';
 import type { StepOutcome } from '../journey/define_journey.js';
 
+export type JourneyStatus = 'passed' | 'failed' | 'not-covered';
+
 export type JourneyRun = {
   id: string;
   title: string;
   capability: string;
-  ok: boolean;
+  /**
+   * Three states, not two. A journey the environment cannot verify is NOT
+   * COVERED there -- reading that as a failure is the inverse of what
+   * capabilities.ts promises, and would declare a whole release failed on
+   * the http-only external provider.
+   */
+  status: JourneyStatus;
   trace: StepOutcome[];
 };
+
+/**
+ * Everything the run asserted that is not a journey: the negative control,
+ * the stack preconditions, the registry-coverage check.
+ *
+ * Carried here because summary.ok was read from the journey registry alone,
+ * so a run where the negative control FAILED -- meaning the awaiter can no
+ * longer detect a dead ingest spine, and J2's green is worthless -- still
+ * published PASSED in summary.json, trace.txt, the evidence sheet and the
+ * derived JUnit.
+ */
+export type HarnessCheck = { name: string; ok: boolean };
 
 export type RunInput = {
   releaseTag: string;
@@ -16,6 +36,7 @@ export type RunInput = {
   digests: Record<string, string>;
   realmMutations: string[];
   journeys: JourneyRun[];
+  harness?: HarnessCheck[];
 };
 
 /** The canonical record. Both renderers read this and nothing else. */
@@ -31,7 +52,16 @@ const CAPABILITY_LABELS: Record<Capability, string> = {
 };
 
 export function buildSummary(run: RunInput): Summary {
-  return { ...run, ok: run.journeys.every((j) => j.ok) };
+  const ran = run.journeys.filter((j) => j.status !== 'not-covered');
+  return {
+    ...run,
+    // every() on an empty list is true, so a run that resolved no journeys
+    // at all used to report PASSED.
+    ok:
+      ran.length > 0 &&
+      ran.every((j) => j.status === 'passed') &&
+      (run.harness ?? []).every((h) => h.ok),
+  };
 }
 
 /**
@@ -48,7 +78,9 @@ export function renderTier2(summary: Summary): string {
   ];
 
   for (const journey of summary.journeys) {
-    lines.push(`${journey.ok ? 'PASS' : 'FAIL'}  ${journey.id}  ${journey.title}`);
+    const mark =
+      journey.status === 'passed' ? 'PASS' : journey.status === 'failed' ? 'FAIL' : 'SKIP';
+    lines.push(`${mark}  ${journey.id}  ${journey.title}`);
     for (const s of journey.trace) {
       lines.push(`  ${s.ok ? '✓' : '✗'} ${s.label}${s.error ? ` — ${s.error}` : ''}`);
     }
@@ -99,12 +131,20 @@ export function renderEvidenceSheet(summaries: Summary[]): string {
 
     const checks = journeys.flatMap((j) => j.trace);
     const passedChecks = checks.filter((c) => c.ok).length;
-    const ok = journeys.every((j) => j.ok);
+    const ran = journeys.filter((j) => j.status !== 'not-covered');
+    // A capability whose only journeys were skipped is NOT COVERED by this
+    // run, not passed and not failed.
+    const verdict =
+      ran.length === 0
+        ? 'NOT RUN'
+        : ran.every((j) => j.status === 'passed')
+          ? 'PASSED'
+          : 'FAILED';
     lines.push(
-      `${CAPABILITY_LABELS[capability].padEnd(36)}${(ok ? 'PASSED' : 'FAILED').padEnd(10)}` +
+      `${CAPABILITY_LABELS[capability].padEnd(36)}${verdict.padEnd(10)}` +
         `${passedChecks} of ${checks.length}`,
     );
-    for (const j of journeys.filter((x) => !x.ok)) {
+    for (const j of journeys.filter((x) => x.status === 'failed')) {
       const failed = j.trace.find((t) => !t.ok);
       if (failed) lines.push(`  └ ${failed.label}${failed.error ? ` — ${failed.error}` : ''}`);
     }

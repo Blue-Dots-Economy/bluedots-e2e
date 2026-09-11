@@ -117,9 +117,14 @@ passes.
 
 ## Status
 
-The CLI (`pnpm journey`, published as `bin: journey`) brings a stack up and
-tears it down. **It cannot yet run a journey** — that is phase 3 onward.
-Use `pnpm test:stack` to run journeys.
+The CLI (`pnpm journey`, published as `bin: journey`) brings a stack up,
+lists targets and emits the CI matrix. **It cannot run a journey** — that
+is phase 3 onward, and `--journey` is rejected rather than accepted and
+ignored. Use `pnpm test:stack`.
+
+`--env` accepts `local` only. `ExternalProvider` exists and is tested, but
+nothing selects it yet and there is no cluster to point it at, so
+`--env external` is an error rather than a silent fallback to compose.
 
 Of the five capabilities in the design, `search-and-discovery` is covered
 by J2. The other four have no journey yet.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildSummary, renderTier2, renderEvidenceSheet } from './summary.js';
+import type { JourneyRun, RunInput } from './summary.js';
 
 const RUN = {
   releaseTag: '202608-s2-rc1',
@@ -12,7 +13,7 @@ const RUN = {
       id: 'J2',
       title: 'A new profile becomes findable in search',
       capability: 'search-and-discovery',
-      ok: true,
+      status: 'passed' as const,
       trace: [
         { label: 'Created a seeker profile', ok: true, durationMs: 0 },
         { label: 'Found the profile in search', ok: true, durationMs: 0 },
@@ -39,7 +40,7 @@ describe('buildSummary', () => {
   test('is red when any journey failed', () => {
     const s = buildSummary({
       ...RUN,
-      journeys: [{ ...RUN.journeys[0]!, ok: false }],
+      journeys: [{ ...RUN.journeys[0]!, status: 'failed' as const }],
     });
 
     expect(s.ok).toBe(false);
@@ -60,7 +61,7 @@ describe('renderTier2', () => {
       ...RUN,
       journeys: [{
         ...RUN.journeys[0]!,
-        ok: false,
+        status: 'failed' as const,
         trace: [
           { label: 'Created a seeker profile', ok: true, durationMs: 0 },
           { label: 'Found the profile in search', ok: false, durationMs: 0, error: 'no match after 30s' },
@@ -108,5 +109,72 @@ describe('renderEvidenceSheet', () => {
 
     expect(out).toContain('purple_dot');
     expect(out).toContain('blue_dot/ka-dhwd');
+  });
+});
+
+describe('buildSummary counts everything the run asserted', () => {
+  const journey = (over: Partial<JourneyRun> = {}): JourneyRun => ({
+    id: 'J2',
+    title: 'A new profile becomes findable in search',
+    capability: 'search-and-discovery',
+    status: 'passed',
+    trace: [{ label: 'did a thing', ok: true, durationMs: 1 }],
+    ...over,
+  });
+
+  const run = (over: Partial<RunInput> = {}): RunInput => ({
+    releaseTag: 'v1',
+    target: 'purple_dot',
+    startedAt: '2026-09-11T00:00:00Z',
+    digests: {},
+    realmMutations: [],
+    journeys: [journey()],
+    ...over,
+  });
+
+  test('fails when a harness check failed, even with every journey green', () => {
+    // The negative control is what makes J2's green mean anything. Reading
+    // ok from the journey registry alone let a run where the control FAILED
+    // publish PASSED in summary.json, trace.txt, the evidence sheet and the
+    // derived JUnit -- while report.html, reading the JUnit cases, showed
+    // red. The four that disagreed are the ones the promotion checklist
+    // reads.
+    const summary = buildSummary(
+      run({
+        harness: [
+          { name: 'Negative control > J2 fails when only the sweep indexed it', ok: false },
+        ],
+      }),
+    );
+
+    expect(summary.ok).toBe(false);
+  });
+
+  test('does not report a journey nobody ran as a failure', () => {
+    // selectJourneys skips a journey the environment cannot verify. Reading
+    // that as FAILED is the inverse of what capabilities.ts promises, and it
+    // would declare a whole release failed on the http-only external
+    // provider, which runs a subset by design.
+    const summary = buildSummary(
+      run({ journeys: [journey(), journey({ id: 'J3', status: 'not-covered' })] }),
+    );
+
+    expect(summary.ok).toBe(true);
+  });
+
+  test('does not call a run where everything was skipped a pass either', () => {
+    // Nothing was verified. Not a failure of the release, but not evidence
+    // for shipping it.
+    expect(buildSummary(run({ journeys: [journey({ status: 'not-covered' })] })).ok).toBe(false);
+  });
+
+  test('does not call a run that executed nothing a pass', () => {
+    // every() on an empty list is true, so a run that resolved no journeys
+    // at all reported PASSED.
+    expect(buildSummary(run({ journeys: [] })).ok).toBe(false);
+  });
+
+  test('still fails on a failed journey', () => {
+    expect(buildSummary(run({ journeys: [journey({ status: 'failed' })] })).ok).toBe(false);
   });
 });

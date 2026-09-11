@@ -26,6 +26,12 @@ export type ComposeDeps = {
   readRealm?: (path: string) => Promise<string>;
   /** Reads the base compose, so its service list can be checked. */
   readBaseFile?: (path: string) => Promise<string>;
+  /**
+   * Distinguishes two stacks booted for the same target -- the negative
+   * control's and the real one. Without it both land in one compose
+   * project and fight over each other's containers and volumes.
+   */
+  projectSuffix?: string;
   /** Deliberate breakage for the negative controls. */
   searchOverrides?: Record<string, string>;
   /** 'tei' (default) or 'stub'; see renderOverlay. */
@@ -59,7 +65,7 @@ export class ComposeProvider implements EnvironmentProvider {
     private readonly target: ResolvedTarget,
     private readonly deps: ComposeDeps,
   ) {
-    this.project = projectName(target);
+    this.project = projectName(target, deps.projectSuffix);
     this.envFile = join(deps.runDir, '.env');
     this.overlayFile = join(deps.runDir, 'overlay.yml');
   }

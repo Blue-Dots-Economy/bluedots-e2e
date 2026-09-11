@@ -75,3 +75,76 @@ describe('buildItemState', () => {
     expect(a.name).not.toBe(b.name);
   });
 });
+
+describe('an isolating handle', () => {
+  test('adds a searchable field when every required one is a contact field', () => {
+    // blue_dot/ka-dhwd requires name and phone, and both are its
+    // contact_fields -- signals-dpg masks them, so search holds "j***".
+    // With only those two emitted, nothing could isolate the run's item and
+    // J2 could not assert anything there.
+    const state = buildItemState(
+      {
+        required: ['name', 'phone'],
+        properties: {
+          name: { type: 'string' },
+          phone: { type: 'string' },
+          gender: { type: 'string', enum: ['Other'] },
+          nameOfJobRolesInterestedIn: { type: 'string', vectorize: true },
+        },
+      },
+      'abc123',
+    );
+
+    expect(state.nameOfJobRolesInterestedIn).toContain('abc123');
+  });
+
+  test('prefers a vectorized field, which is what the network declares searchable', () => {
+    const state = buildItemState(
+      {
+        required: ['name'],
+        properties: {
+          name: { type: 'string' },
+          notes: { type: 'string' },
+          bio: { type: 'string', vectorize: true },
+        },
+      },
+      'abc123',
+    );
+
+    expect(state.bio).toBeDefined();
+    expect(state.notes).toBeUndefined();
+  });
+
+  test('adds nothing when a required field is already a plain string', () => {
+    // purple_dot requires looking_for_details, which survives indexing.
+    // Emitting more than the schema requires is surface the journey does
+    // not need.
+    const state = buildItemState(
+      {
+        required: ['looking_for_details'],
+        properties: {
+          looking_for_details: { type: 'string', vectorize: true },
+          highest_qualification: { type: 'string', vectorize: true },
+        },
+      },
+      'abc123',
+    );
+
+    expect(Object.keys(state)).toEqual(['looking_for_details']);
+  });
+
+  test('skips an enum, which cannot carry a seed-distinct value', () => {
+    const state = buildItemState(
+      {
+        required: ['name'],
+        properties: {
+          name: { type: 'string' },
+          category: { type: 'string', enum: ['a', 'b'], vectorize: true },
+        },
+      },
+      'abc123',
+    );
+
+    expect(state.category).toBeUndefined();
+  });
+});

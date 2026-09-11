@@ -13,12 +13,12 @@ export type ItemKey = {
 export type IngestProbe = {
   /** XINFO STREAM -> last-generated-id. */
   lastStreamId: () => Promise<string>;
-  /** XLEN of the dead-letter stream. */
-  dlqLength: () => Promise<number>;
+  /** XLEN of the dead-letter stream, or null when it cannot be read. */
+  dlqLength: () => Promise<number | null>;
   /** XINFO GROUPS -> last-delivered-id, or null when it cannot be read. */
   groupLastDeliveredId: () => Promise<string | null>;
-  /** XPENDING -> count of un-acknowledged entries. */
-  pendingCount: () => Promise<number>;
+  /** XPENDING -> un-acknowledged entries, or null when it cannot be read. */
+  pendingCount: () => Promise<number | null>;
   /** item_search.indexed_at for this key, or null when absent. */
   indexedAt: (key: ItemKey) => Promise<string | null>;
 };
@@ -27,10 +27,17 @@ export type Baseline = { lastStreamId: string; dlqLength: number };
 
 /** Read before the action, so "advanced" and "unchanged" have a meaning. */
 export async function captureBaseline(probe: IngestProbe): Promise<Baseline> {
-  return {
-    lastStreamId: await probe.lastStreamId(),
-    dlqLength: await probe.dlqLength(),
-  };
+  const dlqLength = await probe.dlqLength();
+  // A blip here recorded 0 against a real length of 5, and every later
+  // reading then threw a spurious INGEST_DEAD_LETTER. A baseline nobody
+  // could read is not a baseline.
+  if (dlqLength === null) {
+    throw new Error(
+      'INGEST_PROBE_UNREADABLE: could not read the dead-letter stream for the baseline. ' +
+        'Every later comparison would be against a number nobody read.',
+    );
+  }
+  return { lastStreamId: await probe.lastStreamId(), dlqLength };
 }
 
 /** Redis ids are `<millis>-<seq>`; compare numerically, not as strings. */
@@ -83,7 +90,15 @@ export async function awaitItemIndexed(
     // Poison first: a parked event acks on the main group, so lag reaches
     // zero exactly as a success would and the deadline would otherwise
     // expire reporting a timeout.
+    // null, not zero: zero is the PASSING value for this gate, so a probe
+    // that cannot read would satisfy one of the four conditions the design
+    // says have to hold together.
     const dlq = await probe.dlqLength();
+    if (dlq === null) {
+      last = 'dead-letter stream could not be read';
+      await sleep(pollMs);
+      continue;
+    }
     if (dlq > opts.baseline.dlqLength) {
       throw new Error(
         `INGEST_DEAD_LETTER: dead-letter stream grew from ${opts.baseline.dlqLength} to ${dlq}`,
@@ -106,9 +121,14 @@ export async function awaitItemIndexed(
       continue;
     }
 
+    // Same again: zero passes this gate, so an unreadable count keeps
+    // waiting rather than being read as "nothing pending".
     const pending = await probe.pendingCount();
-    if (pending > 0) {
-      last = `${pending} un-acknowledged entries remain`;
+    if (pending === null || pending > 0) {
+      last =
+        pending === null
+          ? 'pending entries could not be read'
+          : `${pending} un-acknowledged entries remain`;
       await sleep(pollMs);
       continue;
     }

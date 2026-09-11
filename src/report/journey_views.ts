@@ -28,7 +28,8 @@ type JourneyInput = {
   id: string;
   title: string;
   capability: string;
-  ok: boolean;
+  /** Same three states the summary carries; see summary.ts. */
+  status: 'passed' | 'failed' | 'not-covered';
   trace: { label: string; ok: boolean; durationMs: number; error?: string }[];
   /**
    * Every step the journey declares, in order. The trace stops at the first
@@ -95,12 +96,13 @@ export function buildJourneyViews(input: {
     // on the bare id: the negative control is called "J2 fails when only
     // the sweep indexed the item" and is not J2's case.
     const own = input.cases.filter((c) => c.name.includes(caseNameOf(journey)));
+    // The runner's own verdict wins. JUnit's <skipped/> agrees with it for
+    // a journey the selector declined, but only the runner can say whether
+    // a journey that RAN passed.
     const status: JourneyView['status'] =
-      own.length > 0 && own.every((c) => c.skipped)
+      journey.status === 'not-covered' || (own.length > 0 && own.every((c) => c.skipped))
         ? 'skipped'
-        : journey.ok
-          ? 'passed'
-          : 'failed';
+        : journey.status;
 
     // The case measures the whole test, including the awaiting and teardown
     // no individual step accounts for; the step sum is the fallback.

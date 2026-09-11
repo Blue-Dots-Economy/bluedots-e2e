@@ -10,7 +10,7 @@ const j2 = {
   id: 'J2',
   title: 'A new profile becomes findable in search',
   capability: 'search-and-discovery',
-  ok: false,
+  status: 'failed' as const,
   stepLabels: ['Created a seeker profile', 'Waited for indexing', 'Found the profile in search'],
   trace: [
     { label: 'Created a seeker profile', ok: true, durationMs: 300 },
@@ -56,7 +56,7 @@ describe('buildJourneyViews', () => {
 
   test('reports a journey the runner skipped as skipped, not as passed', () => {
     const { journeys } = buildJourneyViews({
-      journeys: [{ id: 'J3', title: 'Not run here', capability: 'notifications', ok: false, trace: [] }],
+      journeys: [{ id: 'J3', title: 'Not run here', capability: 'notifications', status: 'not-covered' as const, trace: [] }],
       cases: [{ name: 'J3 — Not run here', ok: true, durationMs: 0, skipped: true }],
       http: [],
     });
@@ -106,7 +106,7 @@ describe('buildJourneyViews', () => {
           id: 'J9',
           title: 'Repeats a step',
           capability: 'notifications',
-          ok: false,
+          status: 'failed' as const,
           stepLabels: ['Checked the inbox', 'Checked the inbox'],
           trace: [
             { label: 'Checked the inbox', ok: true, durationMs: 10 },
@@ -123,7 +123,7 @@ describe('buildJourneyViews', () => {
 
   test('reports an all-skipped group of checks as skipped, not passed', () => {
     const { journeys } = buildJourneyViews({
-      journeys: [{ id: 'J3', title: 'Not run', capability: 'notifications', ok: false, trace: [] }],
+      journeys: [{ id: 'J3', title: 'Not run', capability: 'notifications', status: 'not-covered' as const, trace: [] }],
       cases: [{ name: 'J3 — Not run', ok: true, durationMs: 0, skipped: true }],
       http: [],
     });

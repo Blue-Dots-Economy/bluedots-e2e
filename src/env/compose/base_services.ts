@@ -61,22 +61,40 @@ export function resetFor(service: string): string {
  * containers.
  */
 export function assertCoversBaseServices(baseCompose: string): void {
-  const named: string[] = [];
+  // A fixed name OR a fixed host port: the table tracks both, so a guard
+  // reading only container_name let a service that binds a port escape and
+  // collide on it -- the other half of what this claims to prevent.
+  const claimed = new Set<string>();
   let current: string | null = null;
+  let inPorts = false;
 
   for (const line of baseCompose.split('\n')) {
     const service = /^ {2}([a-z][a-z0-9_-]*):\s*$/.exec(line);
-    if (service) current = service[1] ?? null;
-    else if (current && /^\s+container_name:/.test(line)) named.push(current);
+    if (service) {
+      current = service[1] ?? null;
+      inPorts = false;
+      continue;
+    }
+    if (!current) continue;
+
+    if (/^\s+container_name:/.test(line)) claimed.add(current);
+    if (/^\s+ports:/.test(line)) {
+      inPorts = true;
+      continue;
+    }
+    // A published port is "host:container"; "container" alone is picked by
+    // docker and cannot collide.
+    if (inPorts && /^\s+-\s*['"]?\d+:\d+/.test(line)) claimed.add(current);
+    else if (inPorts && !/^\s+-/.test(line)) inPorts = false;
   }
 
-  const missing = named.filter((s) => !BASE_SERVICES[s]);
+  const missing = [...claimed].filter((s) => !BASE_SERVICES[s]);
   if (missing.length > 0) {
     throw new Error(
-      `OVERLAY_INCOMPLETE: the base compose names ${missing.join(', ')}, which ` +
-        `BASE_SERVICES does not cover. A fixed container_name is global to the ` +
-        `docker daemon, so leaving it collides with a second run or the ` +
-        `developer's own stack.`,
+      `OVERLAY_INCOMPLETE: the base compose gives ${missing.join(', ')} a fixed ` +
+        `container_name or host port, and BASE_SERVICES does not cover them. Both ` +
+        `are global to the docker daemon, so leaving either collides with a second ` +
+        `run or with the developer's own stack.`,
     );
   }
 }

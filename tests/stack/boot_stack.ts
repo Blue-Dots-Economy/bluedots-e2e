@@ -60,8 +60,12 @@ export type BootedStack = {
  */
 export async function bootStack(
   opts: {
-    /** Distinguishes concurrent projects, e.g. the control's own stack. */
-    runDirPrefix?: string;
+    /**
+     * Distinguishes this stack from another for the same target -- the
+     * negative control's from the real one. Names the compose project as
+     * well as the run directory: a project directory is not a project.
+     */
+    name?: string;
     /** Deliberate misconfiguration, for a negative control. */
     searchOverrides?: Record<string, string>;
     /** Defaults to global fetch; a run passes its recorder. */
@@ -106,7 +110,8 @@ export async function bootStack(
     assertBindSources,
     digests,
     baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
-    runDir: await mkdtemp(join(tmpdir(), opts.runDirPrefix ?? 'journey-')),
+    runDir: await mkdtemp(join(tmpdir(), `journey-${opts.name ? `${opts.name}-` : ''}`)),
+    ...(opts.name ? { projectSuffix: opts.name } : {}),
     aggregatorRoot: aggregatorRoot(),
     // Real TEI by default -- a standard runner was shown to hold it, and
     // its vectors are the ones production computes. EMBEDDER=stub trades
@@ -115,6 +120,33 @@ export async function bootStack(
     ...(opts.searchOverrides ? { searchOverrides: opts.searchOverrides } : {}),
   });
 
+  // Everything from here on runs with containers already up: the schema
+  // gate, port discovery, kcadm, the realm mutation, seeding and the token
+  // grant. A throw in any of them left `stack` unassigned, so afterAll's
+  // teardownStack(stack) optional-chained to nothing and ten containers AND
+  // their volumes survived -- and the next run died in parseSeedOutput with
+  // "apikey already existed", pointing nowhere near the original failure.
+  // src/cli/main.ts already documents this hazard; the path CI takes was
+  // the one without the guard.
+  try {
+    return await seedBootedStack(provider, resolved, target, targetId, digests, opts);
+  } catch (err) {
+    await provider.down().catch(() => {
+      // The original failure is the one worth reporting. A teardown that
+      // also fails must not replace it.
+    });
+    throw err;
+  }
+}
+
+async function seedBootedStack(
+  provider: ComposeProvider,
+  resolved: Awaited<ReturnType<typeof resolveTarget>>,
+  target: TargetSchemas,
+  targetId: string,
+  digests: Record<string, string>,
+  opts: { http?: typeof fetch },
+): Promise<BootedStack> {
   const env = await provider.up();
   const stackEnv = buildStackEnv(resolved);
 

@@ -141,3 +141,46 @@ describe('awaitItemIndexed', () => {
     expect(t).toBeGreaterThan(0);
   });
 });
+
+describe('a probe that cannot read', () => {
+  test('keeps waiting rather than passing when the pending count is unknown', async () => {
+    // pendingCount degraded to 0 on error, which is the PASSING value for
+    // its gate -- so a broken probe satisfied one of the four conditions
+    // the design says have to hold together. Its siblings get this right:
+    // lastStreamId and groupLastDeliveredId both degrade toward failure.
+    const base = await captureBaseline(probeOf());
+    const probe = probeOf({
+      lastStreamId: async () => '2-0',
+      groupLastDeliveredId: async () => '2-0',
+      indexedAt: async () => '2026-09-10T00:00:01Z',
+      pendingCount: async () => null,
+    });
+
+    await expect(
+      awaitItemIndexed(probe, { key: KEY, baseline: base, deadlineMs: 10, now: clock(), sleep: NOOP_SLEEP }),
+    ).rejects.toThrow(/pending/i);
+  });
+
+  test('keeps waiting rather than passing when the dead-letter length is unknown', async () => {
+    const base = await captureBaseline(probeOf());
+    const probe = probeOf({
+      lastStreamId: async () => '2-0',
+      groupLastDeliveredId: async () => '2-0',
+      indexedAt: async () => '2026-09-10T00:00:01Z',
+      dlqLength: async () => null,
+    });
+
+    await expect(
+      awaitItemIndexed(probe, { key: KEY, baseline: base, deadlineMs: 10, now: clock(), sleep: NOOP_SLEEP }),
+    ).rejects.toThrow(/dead-letter/i);
+  });
+
+  test('refuses a baseline it could not read, rather than assuming zero', async () => {
+    // A blip during captureBaseline recorded dlqLength 0 against a real
+    // length of 5, and every later read then threw a spurious
+    // INGEST_DEAD_LETTER.
+    await expect(captureBaseline(probeOf({ dlqLength: async () => null }))).rejects.toThrow(
+      /baseline/i,
+    );
+  });
+});

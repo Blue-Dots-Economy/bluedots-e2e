@@ -46,8 +46,8 @@ jobs:
         # so it catches a journey using a field the committed spec does not
         # have -- not a provider changing their spec upstream. Detecting
         # that needs `pnpm clients:check`, which regenerates from the
-        # providers and requires network, so it belongs in a scheduled drift
-        # job rather than here.
+        # providers and requires network, so it runs in the scheduled
+        # spec-drift workflow rather than here.
         run: pnpm typecheck
 
       - name: unit tests and harness selftest

@@ -54,7 +54,11 @@ const provenance = Object.fromEntries(
 // back to one line per journey, which is what JUnit can express.
 const runsRaw = await read(`${REPORTS}/journeys.json`);
 const runs = runsRaw
-  ? (JSON.parse(runsRaw) as { id: string; ok: boolean; trace: StepOutcome[] }[])
+  ? (JSON.parse(runsRaw) as {
+      id: string;
+      status: 'passed' | 'failed' | 'not-covered';
+      trace: StepOutcome[];
+    }[])
   : [];
 
 const factsRaw = await read(`${REPORTS}/run_facts.json`);
@@ -89,16 +93,29 @@ const summary = buildSummary({
   realmMutations: realmMutations(facts?.realmMutations ?? null, provenance),
   // Capability comes from the journey registry: JUnit cannot carry one,
   // which is why summary.json rather than JUnit is canonical.
+  // Everything the run asserted that is not a journey: the negative
+  // control, the stack preconditions, the registry-coverage check. Without
+  // these, summary.ok read from the journey registry alone -- so a run
+  // where the control FAILED still published PASSED here while report.html,
+  // reading the JUnit cases, showed red.
+  harness: cases
+    .filter((c) => !ALL_JOURNEYS.some((j) => c.name.includes(caseNameOf(j))))
+    .map((c) => ({ name: c.name, ok: c.ok || Boolean(c.skipped) })),
   journeys: ALL_JOURNEYS.map((journey) => {
     const own = cases.filter((c) => c.name.includes(caseNameOf(journey)));
     const run = runs.find((r) => r.id === journey.id);
+    const status = run
+      ? run.status
+      : own.length === 0 || own.every((c) => c.skipped)
+        ? ('not-covered' as const)
+        : own.every((c) => c.ok)
+          ? ('passed' as const)
+          : ('failed' as const);
     return {
       id: journey.id,
       title: journey.title,
       capability: journey.capability,
-      // A skipped case carries ok: true. Counting one as a pass is how an
-      // uncovered journey reads as verified.
-      ok: run ? run.ok : own.length > 0 && own.every((c) => c.ok && !c.skipped),
+      status,
       // Prefer the recorded steps; fall back to the JUnit case, which is
       // all a report rendered outside a run can see.
       trace:

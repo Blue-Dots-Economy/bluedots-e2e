@@ -38,7 +38,16 @@ function parseBranch(raw: string): Record<string, string> {
   // A bare branch applies to every service; `service=branch` pairs move one
   // each and leave the rest on the default. A cross-service change usually
   // lives on a branch in ONE repo, which is why the per-service form exists.
-  if (!raw.includes('=')) return { [ALL_SERVICES]: raw };
+  if (!raw.includes('=')) {
+    // An empty bare branch used to move every service to the tag "", which
+    // docker rejects as an invalid reference -- reported three retries
+    // later as REGISTRY_UNAVAILABLE. The per-service form is trimmed and
+    // emptiness-checked below for exactly this reason.
+    if (raw.trim() === '') {
+      throw new Error('--branch needs a branch name. Pass one, or omit the flag.');
+    }
+    return { [ALL_SERVICES]: raw.trim() };
+  }
 
   const out: Record<string, string> = {};
   for (const entry of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
@@ -106,11 +115,27 @@ export function parseArgs(argv: readonly string[]): Args {
         args.instance = value;
         break;
       case '--env':
+        // Parsed and then read by nothing: `--env external` booted a local
+        // compose stack anyway. Silently running the wrong environment is
+        // the same failure this parser rejects a typo'd flag to prevent,
+        // so an environment the CLI cannot build is an error until
+        // ExternalProvider is wired to it.
+        if (value !== 'local') {
+          throw new Error(
+            `--env ${value} is not implemented. The CLI builds the local compose ` +
+              `environment only; the external provider exists but nothing selects it yet.`,
+          );
+        }
         args.env = value;
         break;
       case '--journey':
-        args.journey = value;
-        break;
+        // Same: the CLI brings a stack up and takes it down, and cannot run
+        // a journey at all. Accepting a selector for one promises something
+        // it does not do -- use `pnpm test:stack`.
+        throw new Error(
+          `--journey is not implemented. The CLI brings a stack up and tears it ` +
+            `down; run journeys with \`pnpm test:stack\`.`,
+        );
       case '--branch':
         args.branch = parseBranch(value);
         break;

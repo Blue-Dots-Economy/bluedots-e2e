@@ -51,3 +51,23 @@ describe('composeArgs', () => {
     expect(a[i + 1]).toBe('/repo/Signals-DPG/local-setup');
   });
 });
+
+describe('projectName suffix', () => {
+  test('separates two stacks for the same target', () => {
+    // The negative control boots its own stack alongside the real one.
+    // Deriving the project from (dot, instance) alone gave both
+    // "journey-purple-dot", so the control's `up` reconfigured the real
+    // stack's containers onto the decoy consumer group and its `down -v`
+    // destroyed the other's volumes. It only ever worked because
+    // fileParallelism is off -- a config flag three files away.
+    const real = projectName({ dot: 'purple_dot', instance: null });
+    const control = projectName({ dot: 'purple_dot', instance: null }, 'control');
+
+    expect(real).not.toBe(control);
+    expect(control).toContain('control');
+  });
+
+  test('is unchanged without a suffix, so existing projects still match', () => {
+    expect(projectName({ dot: 'purple_dot', instance: null })).toBe('journey-purple-dot');
+  });
+});

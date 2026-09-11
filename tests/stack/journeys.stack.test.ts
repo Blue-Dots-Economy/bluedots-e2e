@@ -33,7 +33,7 @@ describe('journeys against a real stack', () => {
     id: string;
     title: string;
     capability: string;
-    ok: boolean;
+    status: 'passed' | 'failed' | 'not-covered';
     trace: StepOutcome[];
   }[] = [];
 
@@ -92,8 +92,17 @@ describe('journeys against a real stack', () => {
     });
 
     test('publishes no fixed host port, so it coexists with other stacks', () => {
-      for (const fixed of [5432, 5555, 8080, 2742, 3100]) {
-        expect(stack.env.endpoints.signalsApi).not.toContain(`:${fixed}`);
+      // Every endpoint, not just signalsApi: the loop used to check all
+      // five ports against that one URL, which can only ever carry 2742 --
+      // so four of the five iterations could not fail, and searchApi,
+      // keycloak, postgres and redis were never checked at all.
+      const fixed = [5432, 5555, 6379, 8080, 8025, 2742, 3100];
+      for (const [name, url] of Object.entries(stack.env.endpoints)) {
+        for (const port of fixed) {
+          expect(url, `${name} must not publish the base compose's ${port}`).not.toContain(
+            `:${port}`,
+          );
+        }
       }
     });
 
@@ -128,8 +137,19 @@ describe('journeys against a real stack', () => {
     // journey to journeys/index.ts adds a case here automatically.
     for (const journey of ALL_JOURNEYS) {
       test(`${journey.id} — ${journey.title}`, async (ctx) => {
-        const { run } = selectJourneys([journey], stack.targetId, stack.env.capabilities);
+        const { run, skipped } = selectJourneys([journey], stack.targetId, stack.env.capabilities);
         if (run.length === 0) {
+          // Recorded, not merely skipped: a journey missing from
+          // journeys.json reads to the report as a failure, which is the
+          // inverse of what NOT COVERED means.
+          runs.push({
+            id: journey.id,
+            title: journey.title,
+            capability: journey.capability,
+            status: 'not-covered',
+            trace: [],
+          });
+          console.log(`NOT COVERED: ${journey.id} — ${skipped[0]?.reason ?? 'not selected'}`);
           ctx.skip();
           return;
         }
@@ -147,7 +167,7 @@ describe('journeys against a real stack', () => {
           id: journey.id,
           title: journey.title,
           capability: journey.capability,
-          ok: result.ok,
+          status: result.ok ? 'passed' : 'failed',
           trace: result.trace,
         });
 

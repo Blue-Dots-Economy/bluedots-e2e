@@ -21,8 +21,10 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
 
   beforeAll(async () => {
     stack = await bootStack({
-      // Its own project directory: this stack runs alongside the real one.
-      runDirPrefix: 'journey-control-',
+      // Its own compose PROJECT, not merely its own directory: this stack
+      // runs alongside the real one, and sharing a project name means
+      // fighting over the same containers and volumes.
+      name: 'control',
       searchOverrides: {
         // Consume a group nobody is watching: the stream path is dead as
         // far as the awaiter is concerned.

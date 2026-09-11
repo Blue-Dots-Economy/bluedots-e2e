@@ -139,6 +139,14 @@ async function main(argv: string[]): Promise<number> {
   };
 
   interrupted = () => {
+    // Honours --keep-stack like the normal path does. Ctrl-C during a run
+    // started specifically to leave the stack up used to destroy it,
+    // volumes and all -- and could fire mid-up(), racing `compose up`
+    // against `compose down -v` in one project.
+    if (args.keepStack) {
+      stdout.write('\ninterrupted — stack left running (--keep-stack)\n');
+      process.exit(130);
+    }
     stdout.write('\ninterrupted — tearing the stack down\n');
     void provider.down().finally(() => process.exit(130));
   };

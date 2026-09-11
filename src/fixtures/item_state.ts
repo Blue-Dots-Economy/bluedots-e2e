@@ -98,5 +98,52 @@ export function buildItemState(
     if (!prop) throw new Error(`FIXTURE_INVALID: required field ${name} has no schema`);
     out[name] = valueFor(name, prop, seed);
   }
+
+  const handle = isolatingHandle(schema, out);
+  if (handle) out[handle] = valueFor(handle, schema.properties![handle]!, seed);
+
   return out;
+}
+
+/**
+ * One extra field, only when nothing required can isolate the item.
+ *
+ * A journey finds its own item by filtering on a seed-distinct value, and
+ * signals-dpg masks the domain's contact fields on the way in -- search
+ * holds "j***", never what was written. blue_dot/ka-dhwd requires exactly
+ * `name` and `phone`, which are exactly its contact_fields, so a fixture of
+ * required fields alone left that target with no handle at all and J2 could
+ * assert nothing there.
+ *
+ * Vectorized first: that marker is the network's own declaration that a
+ * field is searchable text, and in no target so far is a vectorized field
+ * also a contact field. An enum cannot carry a seed-distinct value and a
+ * pattern needs a generator, so both are skipped.
+ *
+ * Returns undefined when a required field already serves, because emitting
+ * more than the schema requires is surface the journey does not need.
+ */
+function isolatingHandle(
+  schema: JsonSchema,
+  emitted: Record<string, unknown>,
+): string | undefined {
+  const usable = (prop: PropSchema | undefined) =>
+    prop?.type === 'string' && !prop.enum && !prop.pattern;
+
+  // Judged on `vectorize`, not on shape: whether a field survives indexing
+  // is signals-dpg's business, and nothing in the item schema says which
+  // ones it masks. The network's own searchable-text marker is the closest
+  // thing to a guarantee the schema offers.
+  const alreadyHasOne = Object.entries(emitted).some(
+    ([k]) => usable(schema.properties?.[k]) && schema.properties?.[k]?.vectorize,
+  );
+  if (alreadyHasOne) return undefined;
+
+  const candidates = Object.entries(schema.properties ?? {}).filter(
+    ([name, prop]) => !(name in emitted) && usable(prop),
+  );
+  // A schema declaring no vectorized text at all falls back to any plain
+  // string. That may itself be masked, and the search step says so by name
+  // rather than failing blank.
+  return candidates.find(([, prop]) => prop.vectorize)?.[0] ?? candidates[0]?.[0];
 }

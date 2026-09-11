@@ -47,7 +47,9 @@ export function createIngestProbe(cfg: ProbeConfig): IngestProbe & {
     },
 
     async dlqLength() {
-      return redis.xlen(dlq).catch(() => 0);
+      // null, never 0: 0 is what a clean dead-letter stream reads, and the
+      // awaiter gates on it. An unreadable probe must not look clean.
+      return redis.xlen(dlq).catch(() => null);
     },
 
     async groupLastDeliveredId() {
@@ -70,7 +72,8 @@ export function createIngestProbe(cfg: ProbeConfig): IngestProbe & {
       const res = (await redis
         .xpending(stream, group)
         .catch(() => null)) as unknown[] | null;
-      return res ? Number(res[0] ?? 0) : 0;
+      // null, never 0, for the same reason as dlqLength.
+      return res ? Number(res[0] ?? 0) : null;
     },
 
     async indexedAt(key: ItemKey) {

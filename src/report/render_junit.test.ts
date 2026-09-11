@@ -11,7 +11,7 @@ const summary = buildSummary({
   journeys: [
     {
       id: 'J2', title: 'A new profile becomes findable in search',
-      capability: 'search-and-discovery', ok: false,
+      capability: 'search-and-discovery', status: 'failed' as const,
       trace: [{ label: 'Found the profile in search', ok: false, durationMs: 0, error: 'no match' }],
     },
   ],
@@ -36,7 +36,7 @@ describe('renderJUnit', () => {
   test('escapes text so a quote in a label cannot break the XML', () => {
     const odd = buildSummary({
       ...summary,
-      journeys: [{ ...summary.journeys[0]!, title: 'A "quoted" & <odd> title', ok: true, trace: [] }],
+      journeys: [{ ...summary.journeys[0]!, title: 'A "quoted" & <odd> title', status: 'passed' as const, trace: [] }],
     });
 
     const xml = renderJUnit(odd);

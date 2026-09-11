@@ -46,6 +46,16 @@ describe('assertCoversBaseServices', () => {
     expect(() => assertCoversBaseServices(withNewcomer)).toThrow(/voice-dpg/);
   });
 
+  test('fails on a service that binds a host port without a name', () => {
+    // BASE_SERVICES tracks `publishes` as well as the name, and the guard
+    // only scanned for container_name -- so a base service growing a fixed
+    // `ports:` escaped it and collided on the host port, which the
+    // docstring claims it prevents.
+    const withPort = `${BASE}  metrics:\n    ports:\n      - "9090:9090"\n`;
+
+    expect(() => assertCoversBaseServices(withPort)).toThrow(/metrics/);
+  });
+
   test('ignores a service the base compose does not name', () => {
     // No container_name, no collision, nothing to reset.
     expect(() => assertCoversBaseServices(`${BASE}  anon:\n    image: x\n`)).not.toThrow();
