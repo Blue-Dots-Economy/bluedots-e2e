@@ -8,6 +8,7 @@
  */
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { renderHtml } from '../src/report/html.js';
+import { renderNewman } from '../src/report/newman.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
 import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
 import { renderJUnit } from '../src/report/junit.js';
@@ -86,24 +87,10 @@ await writeFile(`${REPORTS}/trace.txt`, renderTier2(summary));
 await writeFile(`${REPORTS}/evidence-sheet.txt`, renderEvidenceSheet([summary]));
 await writeFile(`${REPORTS}/junit-derived.xml`, renderJUnit(summary));
 
-// Plain text for the job log, and the same content as the run summary so
-// the result is legible without downloading the artifact.
-const all = suites.flatMap((s) => s.cases);
-const failed = all.filter((c) => !c.ok);
-const lines = [
-  `${failed.length === 0 ? 'PASSED' : 'FAILED'} — ${report.releaseTag} · ${report.target}`,
-  `${all.length - failed.length} of ${all.length} checks passed`,
-  '',
-];
-for (const suite of suites) {
-  lines.push(`${suite.name}`);
-  for (const c of suite.cases) {
-    lines.push(`  ${c.ok ? '✓' : '✗'} ${c.name} (${(c.durationMs / 1000).toFixed(1)}s)`);
-    if (c.failure) lines.push(`      ${c.failure.split('\n')[0]}`);
-  }
-  lines.push('');
-}
-const text = lines.join('\n');
+// Newman-style for the job log and the run summary: hierarchy in the
+// indentation rather than repeated describe chains, then totals and the
+// failure detail at the end.
+const text = renderNewman(report);
 console.log(text);
 
 if (process.env.GITHUB_STEP_SUMMARY) {
