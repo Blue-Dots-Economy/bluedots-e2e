@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { imageTagsFromEnv, releaseTagFromEnv, seedFromEnv, targetFromEnv } from './from_env.js';
+import { imageTagsFromEnv, releaseTagFromEnv, seedForJourney, seedFromEnv, targetFromEnv } from './from_env.js';
 
 describe('targetFromEnv', () => {
   test('reads a dot-only target', () => {
@@ -118,5 +118,25 @@ describe('seedFromEnv run distinctness', () => {
     expect(seedFromEnv({ JOURNEY_SEED: 'abc', GITHUB_RUN_ID: '1' })).toBe(
       seedFromEnv({ JOURNEY_SEED: 'abc', GITHUB_RUN_ID: '2' }),
     );
+  });
+});
+
+describe('seedForJourney', () => {
+  test('gives two journeys in one run different fixtures', () => {
+    // Every journey took the run's seed, so two that both create a seeker
+    // profile minted the SAME participant address -- the upsert is keyed on
+    // it, so the second updated the first's participant -- and identical
+    // item_state, leaving the search assertion ambiguous about which
+    // journey's item it matched. signals-dpg's own e2e suite hit this as
+    // every parallel worker minting one phone number (signals-dpg#663).
+    expect(seedForJourney('run-1', 'J2')).not.toBe(seedForJourney('run-1', 'J3'));
+  });
+
+  test('is reproducible, so a replay still replays', () => {
+    expect(seedForJourney('run-1', 'J2')).toBe(seedForJourney('run-1', 'J2'));
+  });
+
+  test('carries the run seed, so a failure names something findable', () => {
+    expect(seedForJourney('run-1', 'J2')).toContain('run-1');
   });
 });

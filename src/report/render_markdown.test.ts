@@ -120,4 +120,31 @@ describe('renderMarkdown', () => {
   test('says nothing about failures when there are none', () => {
     expect(renderMarkdown(PASSING)).not.toContain('Failure detail');
   });
+
+  test('says whether a failure blocks the release or blocks the run', () => {
+    // FAILED alone makes the reader guess. A product failure stops the RC;
+    // a harness failure means nothing was verified and the run has to be
+    // repaired and repeated.
+    const md = renderMarkdown({
+      ...PASSING,
+      suites: [
+        {
+          name: 's',
+          durationMs: 1,
+          cases: [
+            {
+              name: 'journeys > J2 — A new profile becomes findable in search',
+              ok: false,
+              durationMs: 1,
+              failure: 'STACK_UNHEALTHY: container signals-mailpit is unhealthy',
+            },
+          ],
+        },
+      ],
+      journeys: [{ ...J2_PASS, status: 'failed' }],
+    });
+
+    expect(md).toMatch(/harness/i);
+    expect(md).toMatch(/nothing was verified/i);
+  });
 });

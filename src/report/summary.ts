@@ -156,5 +156,25 @@ export function renderEvidenceSheet(summaries: Summary[]): string {
     for (const c of uncovered) lines.push(`· ${CAPABILITY_LABELS[c]} — no automated journey yet`);
   }
 
+  // A sheet that lists only what passed invites the reader to assume
+  // everything was checked. NOT COVERED above names capabilities with no
+  // journey; this names the limits of the journeys that DID run, so a green
+  // sheet cannot be over-read into a guarantee nobody made.
+  const runTargets = [...new Set(summaries.map((s) => s.target))];
+  const skipped = summaries.flatMap((s) =>
+    s.journeys.filter((j) => j.status === 'not-covered').map((j) => `${j.id} ${j.title}`),
+  );
+  lines.push(
+    '',
+    'WHAT A PASS HERE STILL DOES NOT PROVE',
+    `· Targets not run. This covers ${runTargets.join(', ')}. Another target serves`,
+    '  different domains from a different schema, and its result is unknown.',
+    '· Anything outside a journey step. A journey asserts the steps it names',
+    '  and nothing else — no ranking, no pagination, no UI.',
+    '· That the services agree on their contracts. The generated clients are',
+    '  checked against the committed specs, not against a live provider.',
+  );
+  for (const s of skipped) lines.push(`· ${s} — declared but not run here.`);
+
   return lines.join('\n') + '\n';
 }

@@ -178,3 +178,23 @@ describe('buildSummary counts everything the run asserted', () => {
     expect(buildSummary(run({ journeys: [journey({ status: 'failed' })] })).ok).toBe(false);
   });
 });
+
+describe('the limits of a pass', () => {
+  test('names what a green run still does not prove', () => {
+    // A report that lists only what passed invites the reader to assume
+    // everything was checked. The NOT COVERED block names capabilities with
+    // no journey at all; this names the limits of the ones that DID run.
+    const sheet = renderEvidenceSheet([buildSummary(RUN)]);
+
+    expect(sheet).toMatch(/does not prove/i);
+    expect(sheet).toContain('purple_dot');
+  });
+
+  test('says a target that was not verified was not verified', () => {
+    // One target's green says nothing about another's: they serve
+    // different domains from different schemas.
+    const sheet = renderEvidenceSheet([buildSummary(RUN)]);
+
+    expect(sheet).toMatch(/other targets|another target|targets not run/i);
+  });
+});

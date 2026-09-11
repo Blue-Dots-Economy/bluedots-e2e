@@ -122,3 +122,22 @@ export function imageTagsFromEnv(
 
   return out;
 }
+
+/**
+ * The seed one journey builds its fixtures from.
+ *
+ * Per journey, not per run. Every journey used to take the run's seed
+ * directly, so two that both create a seeker profile minted the same
+ * participant address -- and the upsert is keyed on that address, so the
+ * second updated the first's participant rather than creating one. Their
+ * item_state matched too, which left the search assertion unable to say
+ * which journey's item it had found.
+ *
+ * Latent while one journey exists, and exactly the collision signals-dpg's
+ * own e2e suite hit as every parallel worker minting one phone number
+ * (signals-dpg#663). Derived rather than random, so JOURNEY_SEED still
+ * reproduces a run exactly.
+ */
+export function seedForJourney(runSeed: string, journeyId: string): string {
+  return `${runSeed}-${journeyId.toLowerCase()}`;
+}

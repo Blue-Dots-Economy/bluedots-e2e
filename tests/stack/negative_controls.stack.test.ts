@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { runJourney, type StepContext } from '../../src/journey/define_journey.js';
 import { profileBecomesFindable } from '../../journeys/search/profile_becomes_findable.js';
+import { seedForJourney } from '../../src/targets/from_env.js';
 import { bootStack, teardownStack, type BootedStack } from './boot_stack.js';
 
 /**
@@ -40,7 +41,10 @@ describe('Negative control: the sweep must not be able to fake a pass', () => {
       http: fetch,
     });
 
-    ctx = { ...stack.baseCtx, state: { seed: stack.seed } };
+    ctx = {
+      ...stack.baseCtx,
+      state: { seed: seedForJourney(stack.seed, profileBecomesFindable.id) },
+    };
   }, 600_000);
 
   afterAll(async () => {

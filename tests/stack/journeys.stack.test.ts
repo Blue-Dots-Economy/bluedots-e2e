@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createRecorder } from '../../src/report/http_recorder.js';
 import { stepKey } from '../../src/report/journey_views.js';
+import { seedForJourney } from '../../src/targets/from_env.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
 import { runJourney, type StepOutcome } from '../../src/journey/define_journey.js';
 import { selectJourneys } from '../../src/journey/select.js';
@@ -157,7 +158,9 @@ describe('journeys against a real stack', () => {
         const result = await runJourney(
           journey,
           // Seeded per run and printed, so a red run can be replayed exactly.
-          { ...stack.baseCtx, state: { seed: stack.seed } },
+          // Per journey: two journeys sharing a seed mint one participant
+          // between them, and the upsert is keyed on it.
+          { ...stack.baseCtx, state: { seed: seedForJourney(stack.seed, journey.id) } },
           // The journey id travels with the label: the report shows one
           // list of requests across every journey in the run.
           { onStep: (label) => recorder.startStep(stepKey(journey.id, label)) },

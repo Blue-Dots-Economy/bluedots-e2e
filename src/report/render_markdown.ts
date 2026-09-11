@@ -1,5 +1,6 @@
 import { caseNameOf, type JourneyView } from './journey_views.js';
 import { duration, failedRequests, isFailedRequest, seconds } from './format.js';
+import { classifyFailure } from './failure_class.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
 
 /** A pipe ends a table cell, so any text going into one has to lose it. */
@@ -75,9 +76,22 @@ export function renderMarkdown(report: RunReport): string {
   // summary reads green while the job is red.
   const looseFailures = failedCases.filter((c) => !journeys.some((j) => c.name.includes(caseNameOf(j))));
 
+  // A harness failure and a product failure need opposite responses, and
+  // FAILED alone makes the reader guess which they are looking at.
+  const harnessBroke =
+    !ok && failedCases.some((c) => classifyFailure(c.failure ?? '') === 'harness');
+
   return [
     `## ${ok ? '✅ PASSED' : '❌ FAILED'} — release \`${report.releaseTag}\` · target \`${report.target}\``,
     '',
+    ...(harnessBroke
+      ? [
+          '> **This is a harness failure, not a product failure.** The suite could not' +
+            ' get far enough to judge the release, so **nothing was verified** — this run' +
+            ' neither proves nor disproves the candidate. Repair the run and repeat it.',
+          '',
+        ]
+      : []),
     '| Scenarios | Passed | Failed | Skipped | Checks | Requests | Failed requests |',
     '| --: | --: | --: | --: | --: | --: | --: |',
     `| ${counts.scenarios} | ${counts.passed} | ${counts.failed} | ${counts.skipped} | ${cases.length} | ${http.length} | ${failedHttp.length} |`,
