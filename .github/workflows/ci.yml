@@ -15,8 +15,17 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Job scope, not step scope: a step's own `env:` block is not in scope
+    # for that step's own `if:`, so a token declared on the Sonar step
+    # cannot be the thing that decides whether to run it.
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      # Sonar's new-code detection and blame need full history; a shallow
+      # clone makes every line look new on every run.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
 
       # The workflows land on main ahead of the harness itself, so this
       # must be a no-op on a main that has no package.json yet rather than
@@ -54,8 +63,10 @@ jobs:
         if: steps.harness.outputs.present == 'true'
         # Includes the canaries -- one built to pass, one built to fail --
         # so a runner that reports green regardless is caught here rather
-        # than by a journey suite that looks healthy.
-        run: pnpm test
+        # than by a journey suite that looks healthy. With coverage,
+        # because the Sonar scan below reads coverage/lcov.info and a scan
+        # with no coverage reports every line as untested.
+        run: pnpm test:coverage
 
       - name: build the published cli
         if: steps.harness.outputs.present == 'true'
@@ -65,3 +76,21 @@ jobs:
         run: |
           pnpm build
           test -f dist/cli/main.js
+
+      # Two independent guards, for two different failure modes:
+      #   `if:`               -- no token at all. GitHub withholds repo secrets
+      #                         from Dependabot-raised and fork pull_request
+      #                         runs, so an ungated scan exits 3 with "Not
+      #                         authorized or project not found" on every
+      #                         dependency PR. Skip, do not run.
+      #   `continue-on-error` -- token present but the scan fails (outage,
+      #                         expired token, quality gate). A scanner
+      #                         problem must not turn a green harness red;
+      #                         findings surface in the run log and in
+      #                         SonarCloud's own commit check.
+      # SONAR_TOKEN is read from the step env into the job scope below: a
+      # step's own `env:` block is not in scope for its own `if:`.
+      - name: SonarCloud scan
+        if: steps.harness.outputs.present == 'true' && env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        continue-on-error: true

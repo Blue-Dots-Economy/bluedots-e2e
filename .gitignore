@@ -5,3 +5,4 @@ reports/
 .env.*
 !.env.example
 .gstack/
+coverage/

@@ -19,11 +19,13 @@
     "build": "tsc -p tsconfig.build.json",
     "clients:generate": "tsx scripts/generate_clients.ts",
     "clients:check": "tsx scripts/generate_clients.ts && git diff --exit-code src/clients/generated",
-    "report": "tsx scripts/render_report.ts"
+    "report": "tsx scripts/render_report.ts",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "2.1.9",
     "ioredis": "^6.0.0",
     "openapi-typescript": "^7.13.0",
     "pg": "^8.23.0",
