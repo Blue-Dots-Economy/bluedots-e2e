@@ -106,3 +106,35 @@ describe('resolveTags with per-service overrides', () => {
     expect(tags['signals-dpg']).toBe('202609-s1-rc1');
   });
 });
+
+describe('resolveDigests required vs recorded', () => {
+  const inspect = async (ref: string) => (ref.includes('notification') ? null : 'sha256:abc');
+
+  test('still fails when an image the stack boots is missing', () => {
+    return expect(
+      resolveDigests({ 'signals-dpg': 'ghcr.io/x/notification:v1' }, inspect, {
+        required: ['signals-dpg'],
+      }),
+    ).rejects.toThrow(/IMAGE_NOT_FOUND/);
+  });
+
+  test('does not abort on an image no container in this run starts', async () => {
+    // J2 boots signals-dpg and signals-search. Resolving the other two is
+    // provenance, so a release tag that was not cut fleet-wide stopped a
+    // run that never needed those images.
+    const digests = await resolveDigests(
+      { 'signals-dpg': 'ghcr.io/x/signals:v1', 'notification-service': 'ghcr.io/x/notification:v1' },
+      inspect,
+      { required: ['signals-dpg'] },
+    );
+
+    expect(digests['signals-dpg']).toBe('sha256:abc');
+    expect(digests['notification-service']).toBe('(not published for this tag)');
+  });
+
+  test('requires everything when no required list is given', () => {
+    return expect(
+      resolveDigests({ 'notification-service': 'ghcr.io/x/notification:v1' }, inspect),
+    ).rejects.toThrow(/IMAGE_NOT_FOUND/);
+  });
+});

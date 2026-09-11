@@ -238,7 +238,13 @@ function groupChecks(cases: CaseReport[]): JourneyView[] {
     title,
     kind: 'checks' as const,
     capability: 'checks',
-    status: own.every((c) => c.ok) ? 'passed' : 'failed',
+    // A skipped case carries ok: true, so `every(c => c.ok)` painted a
+    // group nobody ran bright green.
+    status: own.every((c) => c.skipped)
+      ? ('skipped' as const)
+      : own.every((c) => c.ok)
+        ? ('passed' as const)
+        : ('failed' as const),
     durationMs: own.reduce((sum, c) => sum + c.durationMs, 0),
     steps: own.map(caseAsStep),
   }));
@@ -278,7 +284,11 @@ export function renderHtml(report: RunReport): string {
             id: 'SUITE',
             title: s.name,
             capability: 'suite',
-            status: s.cases.every((c) => c.ok) ? 'passed' : 'failed',
+            status: s.cases.every((c) => c.skipped)
+              ? 'skipped'
+              : s.cases.every((c) => c.ok)
+                ? 'passed'
+                : 'failed',
             durationMs: s.durationMs,
             steps: s.cases.map(caseAsStep),
           }),

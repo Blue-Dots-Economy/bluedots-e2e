@@ -80,7 +80,12 @@ export function parseArgs(argv: readonly string[]): Args {
     }
 
     const value = argv[++i];
-    if (value === undefined) throw new Error(`Flag "${flag}" needs a value.`);
+    // A flag is never a value: `--dot --list` set dot to "--list" and
+    // swallowed the flag, so the run looked for a target called "--list"
+    // and silently did not list anything.
+    if (value === undefined || value.startsWith('--')) {
+      throw new Error(`Flag "${flag}" needs a value.`);
+    }
 
     switch (flag) {
       case '--dot': {

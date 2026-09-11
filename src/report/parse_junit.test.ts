@@ -63,3 +63,19 @@ test('marks a skipped case as skipped rather than passed', () => {
   expect(suite?.cases[0]?.skipped).toBe(true);
   expect(suite?.cases[1]?.skipped).toBeFalsy();
 });
+
+test('treats a failure with an empty message as a failure', () => {
+  // ok was `!failure`, and an empty message string is falsy, so a red job
+  // rendered all-green. The element's presence is the signal, not its text.
+  const xml = `<testsuites>
+<testsuite name="s" time="1">
+<testcase classname="x" name="broke silently" time="1"><failure message=""></failure></testcase>
+<testcase classname="x" name="broke loudly" time="1"><failure message="boom"></failure></testcase>
+</testsuite>
+</testsuites>`;
+
+  const [suite] = parseJUnit(xml);
+
+  expect(suite?.cases[0]?.ok).toBe(false);
+  expect(suite?.cases[1]?.ok).toBe(false);
+});

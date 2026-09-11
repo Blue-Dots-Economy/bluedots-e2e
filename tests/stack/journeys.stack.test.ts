@@ -10,6 +10,9 @@ import { resolveTarget } from '../../src/targets/target_discovery.js';
 import { imageTagsFromEnv, releaseTagFromEnv, seedFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
 import { SERVICES } from '../../src/cli/args.js';
+
+/** The services a journey run actually starts containers for. */
+const BOOTED_SERVICES = ['signals-dpg', 'signals-search'];
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
@@ -60,6 +63,7 @@ describe('journeys against a real stack', () => {
   // The step trace exists only in this process. Without writing it out, the
   // report can only show the JUnit case name -- one line per journey -- and
   // never the steps inside it.
+  let resolvedDigests: Record<string, string> = {};
   const runs: {
     id: string;
     title: string;
@@ -78,8 +82,22 @@ describe('journeys against a real stack', () => {
       id: string;
       domains: { id: string; item_schemas: Record<string, unknown> }[];
     };
-    const domainSchemas = networkConfig.domains.find((d) => d.id === DOMAIN)!.item_schemas;
-    const itemType = Object.keys(domainSchemas)[0]!;
+    const domain = networkConfig.domains.find((d) => d.id === DOMAIN);
+    // Named here rather than dying on a non-null assertion: a target
+    // without a seeker domain otherwise fails in beforeAll with a
+    // TypeError pointing nowhere near the cause.
+    if (!domain) {
+      throw new Error(
+        `TARGET_UNUSABLE: ${targetId} declares no "${DOMAIN}" domain ` +
+          `(it has ${networkConfig.domains.map((d) => d.id).join(', ')}). ` +
+          `Every journey in this suite creates a ${DOMAIN} profile.`,
+      );
+    }
+    const itemType = Object.keys(domain.item_schemas)[0];
+    if (!itemType) {
+      throw new Error(`TARGET_UNUSABLE: ${targetId}'s "${DOMAIN}" domain declares no item schema.`);
+    }
+    const domainSchemas = domain.item_schemas;
 
     const tags = resolveTags({
       branch: null,
@@ -89,13 +107,16 @@ describe('journeys against a real stack', () => {
     // All four are resolved, though only signals-dpg and signals-search
     // boot for J2: a run that says it verified a release should be able to
     // name the digest of every service in it, and resolving only inspects
-    // manifests -- it pulls nothing.
+    // manifests -- it pulls nothing. Only the two that boot are required:
+    // a tag not cut fleet-wide otherwise stopped a run that never needed
+    // the other images, and reported nothing at all.
     const digests = await resolveDigests(
-      Object.fromEntries(
-        SERVICES.map((s) => [s, imageRef(s, s === 'aggregator-dpg' ? 'api' : 'api', tags[s])]),
-      ),
+      Object.fromEntries(SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])])),
       dockerInspector,
+      { required: BOOTED_SERVICES },
     );
+
+    resolvedDigests = digests;
 
     provider = new ComposeProvider(target, {
       run: dockerRun,
@@ -162,6 +183,13 @@ describe('journeys against a real stack', () => {
     await mkdir('reports', { recursive: true });
     await writeFile('reports/http.json', JSON.stringify(recorder.entries, null, 2));
     await writeFile('reports/journeys.json', JSON.stringify(runs, null, 2));
+    // provenance.txt is written before the stack boots, so it can name the
+    // image tags but not the digests they resolved to, and nothing there
+    // knows what the harness changed while running.
+    await writeFile(
+      'reports/run_facts.json',
+      JSON.stringify({ digests: resolvedDigests, realmMutations: env?.realmMutations ?? [] }, null, 2),
+    );
     await probe?.close();
     await provider?.down();
   });

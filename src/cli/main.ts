@@ -102,9 +102,31 @@ async function main(argv: string[]): Promise<number> {
   });
 
   stdout.write('\nbringing the stack up…\n');
-  const ctx = await provider.up();
 
-  stdout.write(
+  // up() partially succeeds: containers, networks and volumes exist the
+  // moment compose starts them, so a throw after that -- or a Ctrl-C --
+  // leaked a stack that then collided with the next run.
+  // A signal skips finally entirely, so it needs its own path.
+  let interrupted: (() => void) | undefined;
+  const teardown = async () => {
+    if (args.keepStack) {
+      stdout.write('stack left running (--keep-stack)\n');
+      return;
+    }
+    stdout.write('tearing the stack down (pass --keep-stack to leave it up)\n');
+    await provider.down();
+  };
+
+  interrupted = () => {
+    stdout.write('\ninterrupted — tearing the stack down\n');
+    void provider.down().finally(() => process.exit(130));
+  };
+  process.once('SIGINT', interrupted);
+
+  try {
+    const ctx = await provider.up();
+
+    stdout.write(
     [
       '',
       'stack ready',
@@ -115,16 +137,14 @@ async function main(argv: string[]): Promise<number> {
       `  realm changes   ${ctx.realmMutations.length ? ctx.realmMutations.join('; ') : '(none)'}`,
       '',
     ].join('\n'),
-  );
+    );
 
-  // Phases 3-5 arrive with #6 onward.
-  if (!args.keepStack) {
-    stdout.write('tearing the stack down (pass --keep-stack to leave it up)\n');
-    await provider.down();
-  } else {
-    stdout.write('stack left running (--keep-stack)\n');
+    // Phases 3-5 arrive with #6 onward.
+    return 0;
+  } finally {
+    await teardown();
+    if (interrupted) process.off('SIGINT', interrupted);
   }
-  return 0;
 }
 
 main(process.argv.slice(2))

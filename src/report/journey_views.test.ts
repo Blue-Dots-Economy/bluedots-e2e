@@ -96,4 +96,38 @@ describe('buildJourneyViews', () => {
 
     expect(journeys[0]?.durationMs).toBe(3000);
   });
+
+  test('keeps two steps that share a label distinct', () => {
+    // Traces were keyed by label, so a journey asserting the same thing
+    // twice collapsed into one row and the second outcome was lost.
+    const { journeys } = buildJourneyViews({
+      journeys: [
+        {
+          id: 'J9',
+          title: 'Repeats a step',
+          capability: 'notifications',
+          ok: false,
+          stepLabels: ['Checked the inbox', 'Checked the inbox'],
+          trace: [
+            { label: 'Checked the inbox', ok: true, durationMs: 10 },
+            { label: 'Checked the inbox', ok: false, durationMs: 20, error: 'empty' },
+          ],
+        },
+      ],
+      cases: [],
+      http: [],
+    });
+
+    expect(journeys[0]?.steps.map((s) => s.status)).toEqual(['passed', 'failed']);
+  });
+
+  test('reports an all-skipped group of checks as skipped, not passed', () => {
+    const { journeys } = buildJourneyViews({
+      journeys: [{ id: 'J3', title: 'Not run', capability: 'notifications', ok: false, trace: [] }],
+      cases: [{ name: 'J3 — Not run', ok: true, durationMs: 0, skipped: true }],
+      http: [],
+    });
+
+    expect(journeys[0]?.status).toBe('skipped');
+  });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { assertBindSources, renderOverlay } from './overlay.js';
+import { buildStackEnv } from './stack_env.js';
 
 const TARGET = {
   id: 'purple_dot', dot: 'purple_dot', instance: null,
@@ -24,6 +25,34 @@ describe('renderOverlay', () => {
     for (const port of ['5432:', '5555:', '8080:', '8025:', '2742:', '3100:']) {
       expect(yaml, `must not bind host ${port}`).not.toContain(`"${port}`);
     }
+  });
+
+  test('unnames every container the enabled profiles start', () => {
+    // container_name is global to the docker daemon, not scoped to the
+    // compose project, so any service keeping its fixed name collides with
+    // a second run -- and with the developer's own stack. tei-embeddings
+    // was only reset on the stub path, which is not the path CI takes, and
+    // keycloak-init was never reset at all though seeding depends on it.
+    const yaml = renderOverlay(OPTS);
+
+    for (const service of ['tei-embeddings', 'keycloak-init']) {
+      const block = yaml.slice(yaml.indexOf(`\n  ${service}:`));
+      expect(block.slice(0, block.indexOf('\n\n')), `${service} must be unnamed`).toContain(
+        'container_name: !reset null',
+      );
+    }
+  });
+
+  test('pins the issuer keycloak mints, since the host port is ephemeral', () => {
+    // Keycloak derives iss from the request URL when no hostname is set
+    // (KC_HOSTNAME_STRICT is false in the base compose), so a token taken
+    // through the ephemeral host port carries that port in iss, while
+    // signals-api compares it byte-for-byte against KEYCLOAK_BASE_URL --
+    // which is fixed. Every such token 401s on first use.
+    const yaml = renderOverlay(OPTS);
+    const keycloak = yaml.slice(yaml.indexOf('\n  keycloak:'), yaml.indexOf('\n  tei-embeddings:'));
+
+    expect(keycloak).toContain(`KC_HOSTNAME: ${buildStackEnv(TARGET).KEYCLOAK_BASE_URL}`);
   });
 
   test('replaces the port list rather than appending to it', () => {

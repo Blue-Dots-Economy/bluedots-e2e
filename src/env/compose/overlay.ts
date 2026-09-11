@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
+import { KEYCLOAK_ISSUER } from './stack_env.js';
 
 /**
  * The overlay layered on top of Signals-DPG/local-setup/docker-compose.yml.
@@ -92,7 +93,14 @@ ${ephemeral(6379)}
 
   keycloak:
 ${unnamed}
-${ephemeral(8080)}${
+${ephemeral(8080)}
+    environment:
+      # Pins the issuer. The host port is ephemeral, and with
+      # KC_HOSTNAME_STRICT false keycloak derives iss from the request URL,
+      # so a token taken through that port carries it in iss -- while
+      # signals-api compares iss byte-for-byte against KEYCLOAK_BASE_URL,
+      # which is fixed. Every such token 401s on first use.
+      KC_HOSTNAME: ${KEYCLOAK_ISSUER}${
     aggregatorRoot
       ? `
     # aggregator-dpg's realm export is the only one carrying all eight
@@ -134,14 +142,19 @@ ${ephemeral(8080)}${
       : ''
   }
 
-${
-    opts.embedder === 'stub'
-      ? `  # Overridden in place, keeping the service name: EMBEDDING_BASE_URL
-  # points at http://tei-embeddings:80/v1, so nothing downstream needs to
-  # know which embedder is running. Runs from the signals-search image,
-  # which this stack already pulls, so choosing the stub adds no image.
+  # One block on every path. The fixed name tei-embeddings is global to
+  # the docker daemon, so the default (real TEI) path -- the one CI takes
+  # -- collided with any other stack running an embedder. The stub adds
+  # keys here rather than declaring the service a second time: a duplicate
+  # mapping key is not a merge, it is the last one winning.
   tei-embeddings:
 ${unnamed}
+${
+    opts.embedder === 'stub'
+      ? `    # Overridden in place, keeping the service name: EMBEDDING_BASE_URL
+    # points at http://tei-embeddings:80/v1, so nothing downstream needs to
+    # know which embedder is running. Runs from the signals-search image,
+    # which this stack already pulls, so choosing the stub adds no image.
     image: ghcr.io/blue-dots-economy/signals-search@${digests['signals-search']}
     platform: !reset null
     entrypoint: !override ["node"]
@@ -150,10 +163,14 @@ ${unnamed}
       EMBEDDING_DIM: "1024"
     volumes: !override
       - ${opts.stubDir ?? '/stub'}:/stub:ro
-
 `
       : ''
-  }  mailpit:
+  }  # Runs under the keycloak profile, which every run enables, and seeding
+  # waits on it. Nothing reset its name before.
+  keycloak-init:
+${unnamed}
+
+  mailpit:
 ${unnamed}
 ${ephemeral(8025)}
     # The base healthcheck uses /dev/tcp/127.0.0.1/8025, a bash builtin. The

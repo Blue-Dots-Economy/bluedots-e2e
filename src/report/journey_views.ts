@@ -58,11 +58,14 @@ export function buildJourneyViews(input: {
   const claimed = new Set<HttpEntryView>();
 
   const journeys = input.journeys.map((journey) => {
-    const traced = new Map(journey.trace.map((t) => [t.label, t]));
     const labels = journey.stepLabels ?? journey.trace.map((t) => t.label);
 
-    const steps: StepView[] = labels.map((label) => {
-      const outcome = traced.get(label);
+    // Matched by position, not by label. The trace is the declared steps in
+    // order, stopping at the first failure, and a journey may legitimately
+    // assert the same thing twice -- keying by label collapsed those into
+    // one row and lost the second outcome.
+    const steps: StepView[] = labels.map((label, i) => {
+      const outcome = journey.trace[i]?.label === label ? journey.trace[i] : undefined;
       // The recorder prefixes the journey id so one run's requests stay
       // distinguishable when two journeys share a step label.
       const http = input.http.filter(

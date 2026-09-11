@@ -301,6 +301,25 @@ describe('the scenario tree', () => {
     expect(html).not.toContain('outer &gt; inner');
   });
 
+  test('reports an all-skipped group as skipped, not as passed', () => {
+    // Skipped cases carry ok: true, so `every(c => c.ok)` painted a group
+    // nobody ran bright green.
+    const html = renderHtml({
+      ...TREE,
+      journeys: [J2],
+      suites: [
+        {
+          name: 'tests/stack/journeys.stack.test.ts',
+          durationMs: 1,
+          cases: [{ name: 'Negative control > J2 fails when faked', ok: true, durationMs: 0, skipped: true }],
+        },
+      ],
+    });
+    const block = html.slice(html.indexOf('Negative control') - 600);
+
+    expect(block).toContain('journey skipped');
+  });
+
   test('keeps checks that belong to no journey in the same tree', () => {
     // The environment assertions are real coverage; dropping them from the
     // page would make the run look narrower than it was.

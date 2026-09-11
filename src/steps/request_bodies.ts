@@ -133,7 +133,12 @@ export function extractItemKey(res: UpsertResponse): ItemKey {
  * distance with LIMIT/OFFSET, so depending on position would start failing
  * as the fixture corpus grows, for reasons unrelated to the ingest spine.
  */
-export function buildSearchBody(key: ItemKey, filter: { field: string; value: unknown }) {
+/**
+ * `filter: null` searches the same context with no filter at all. A step
+ * uses it to tell "the item is invisible to search" apart from "the filter
+ * did not match", which are different subsystems and different fixes.
+ */
+export function buildSearchBody(key: ItemKey, filter: { field: string; value: unknown } | null) {
   return {
     context: {
       domain: key.domain,
@@ -144,9 +149,9 @@ export function buildSearchBody(key: ItemKey, filter: { field: string; value: un
     },
     message: {
       intent: {
-        filters: [
-          { op: 'eq' as const, target: `item_state.${filter.field}`, value: filter.value },
-        ],
+        filters: filter
+          ? [{ op: 'eq' as const, target: `item_state.${filter.field}`, value: filter.value }]
+          : [],
       },
     },
   };

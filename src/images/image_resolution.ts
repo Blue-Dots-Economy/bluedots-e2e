@@ -80,10 +80,27 @@ export type Inspector = (ref: string) => Promise<string | null>;
  * silent fallback to some other tag would mean reporting a green run against
  * images nobody chose.
  */
+export const NOT_PUBLISHED = '(not published for this tag)';
+
+/**
+ * Resolve every tag to a digest; fail only on the ones this run boots.
+ *
+ * A release is not always cut across all four repos, and a journey boots
+ * two of them. Failing the whole run because a service it never starts has
+ * no image for that tag stops the verification that could have happened,
+ * and reports nothing. The unresolved ones are recorded as unpublished, so
+ * the evidence still says exactly which images were verified and which
+ * were not -- without pretending they were.
+ *
+ * `required` defaults to every service: a caller that has not said what it
+ * boots gets the strict behaviour.
+ */
 export async function resolveDigests(
   refs: Record<string, string>,
   inspect: Inspector,
+  opts: { required?: string[] } = {},
 ): Promise<Record<string, string>> {
+  const required = new Set(opts.required ?? Object.keys(refs));
   const out: Record<string, string> = {};
   const missing: string[] = [];
 
@@ -91,7 +108,8 @@ export async function resolveDigests(
     Object.entries(refs).map(async ([service, ref]) => {
       const digest = await inspect(ref);
       if (digest) out[service] = digest;
-      else missing.push(`${service} (${ref})`);
+      else if (required.has(service)) missing.push(`${service} (${ref})`);
+      else out[service] = NOT_PUBLISHED;
     }),
   );
 

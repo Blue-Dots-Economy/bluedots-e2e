@@ -36,6 +36,14 @@ const TIMING = {
   PEL_MIN_IDLE_MS: '5000',
 } as const;
 
+/**
+ * The issuer signals-api validates, and therefore the one keycloak must
+ * mint. Exported so the overlay pins KC_HOSTNAME to the same value: the
+ * published host port is ephemeral, and the two drifting apart 401s every
+ * token at first use.
+ */
+export const KEYCLOAK_ISSUER = 'http://localhost:8080';
+
 export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
   return {
     ...TEST_SECRETS,
@@ -54,7 +62,7 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     AUTH_PROVIDER: 'keycloak',
     // iss derives from the PUBLIC url; the internal one is the compose
     // service name. Collapsing them fails every token.
-    KEYCLOAK_BASE_URL: 'http://localhost:8080',
+    KEYCLOAK_BASE_URL: KEYCLOAK_ISSUER,
     KEYCLOAK_INTERNAL_BASE_URL: 'http://keycloak:8080',
     KEYCLOAK_REALM: 'bluedots',
     KEYCLOAK_UI_CLIENT_ID: 'signals-ui',

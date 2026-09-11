@@ -56,3 +56,12 @@ jobs:
         # so a runner that reports green regardless is caught here rather
         # than by a journey suite that looks healthy.
         run: pnpm test
+
+      - name: build the published cli
+        if: steps.harness.outputs.present == 'true'
+        # package.json's bin points at dist/cli/main.js. Nothing ran the
+        # build, so the entry point was free to rot -- and did: the script
+        # referenced a tsconfig.build.json that did not exist.
+        run: |
+          pnpm build
+          test -f dist/cli/main.js

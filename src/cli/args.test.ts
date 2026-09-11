@@ -44,3 +44,9 @@ describe('parseArgs', () => {
     expect(a.list).toBe(false);
   });
 });
+
+test('refuses to swallow a flag as another flag\'s value', () => {
+  // `journey --dot --list` set dot to "--list" and dropped the flag: the
+  // run then looked for a target called "--list" and never listed anything.
+  expect(() => parseArgs(['--dot', '--list'])).toThrow(/needs a value/i);
+});

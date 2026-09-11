@@ -9,6 +9,7 @@
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { renderHtml, type HttpEntryView } from '../src/report/render_html.js';
 import { buildJourneyViews, caseNameOf } from '../src/report/journey_views.js';
+import { imageDigests, realmMutations, type RunFacts } from '../src/report/run_facts.js';
 import type { StepOutcome } from '../src/journey/define_journey.js';
 import { renderNewman } from '../src/report/render_console.js';
 import { renderMarkdown } from '../src/report/render_markdown.js';
@@ -56,15 +57,22 @@ const runs = runsRaw
   ? (JSON.parse(runsRaw) as { id: string; ok: boolean; trace: StepOutcome[] }[])
   : [];
 
+const factsRaw = await read(`${REPORTS}/run_facts.json`);
+const facts = factsRaw ? (JSON.parse(factsRaw) as RunFacts) : null;
+
 const httpRaw = await read(`${REPORTS}/http.json`);
 const http = httpRaw ? (JSON.parse(httpRaw) as HttpEntryView[]) : undefined;
 
 const startedAt = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
+const digestRows = Object.fromEntries(
+  Object.entries(facts?.digests ?? {}).map(([service, digest]) => [`image.${service}`, digest]),
+);
+
 const report = {
   releaseTag: provenance.release_tag ?? process.env.JOURNEY_RELEASE_TAG ?? '(local run)',
   target: provenance.target ?? process.env.JOURNEY_TARGET ?? '(unspecified)',
-  provenance,
+  provenance: { ...provenance, ...digestRows },
   suites,
   ...(http ? { http } : {}),
 };
@@ -77,10 +85,8 @@ const summary = buildSummary({
   releaseTag: report.releaseTag,
   target: report.target,
   startedAt: new Date().toISOString(),
-  digests: Object.fromEntries(
-    Object.entries(provenance).filter(([k]) => k.endsWith('_sha')),
-  ),
-  realmMutations: (provenance.realm_mutations ?? '').split(';').filter(Boolean),
+  digests: imageDigests(facts?.digests ?? null, provenance),
+  realmMutations: realmMutations(facts?.realmMutations ?? null, provenance),
   // Capability comes from the journey registry: JUnit cannot carry one,
   // which is why summary.json rather than JUnit is canonical.
   journeys: ALL_JOURNEYS.map((journey) => {
@@ -90,7 +96,9 @@ const summary = buildSummary({
       id: journey.id,
       title: journey.title,
       capability: journey.capability,
-      ok: run ? run.ok : own.length > 0 && own.every((c) => c.ok),
+      // A skipped case carries ok: true. Counting one as a pass is how an
+      // uncovered journey reads as verified.
+      ok: run ? run.ok : own.length > 0 && own.every((c) => c.ok && !c.skipped),
       // Prefer the recorded steps; fall back to the JUnit case, which is
       // all a report rendered outside a run can see.
       trace:

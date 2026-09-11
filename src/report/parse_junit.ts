@@ -20,12 +20,16 @@ export function parseJUnit(xml: string): SuiteReport[] {
       const tag = m[1] ?? m[3] ?? '';
       const body = m[2] ?? '';
       const skipped = /<skipped/.test(body);
-      const failure = /<failure/.test(body)
-        ? unescape(attr(/<failure[^>]*/.exec(body)?.[0] ?? '', 'message'))
+      // The element's presence is the signal, never its message: a
+      // <failure message=""> is falsy as a string, and reading ok from the
+      // text rendered a red job all-green.
+      const didFail = /<failure/.test(body);
+      const failure = didFail
+        ? unescape(attr(/<failure[^>]*/.exec(body)?.[0] ?? '', 'message')) || '(no message)'
         : undefined;
       return {
         name: unescape(attr(tag, 'name')),
-        ok: !failure,
+        ok: !didFail,
         durationMs: Number(attr(tag, 'time') || 0) * 1000,
         ...(skipped ? { skipped } : {}),
         ...(failure ? { failure } : {}),
