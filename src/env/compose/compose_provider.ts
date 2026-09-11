@@ -16,7 +16,9 @@ import { prepareRealm } from '../realm_prepare.js';
 export type ComposeDeps = {
   run: (args: string[]) => Promise<string>;
   writeFile: (path: string, contents: string) => Promise<void>;
-  assertBindSources: (paths: readonly string[]) => Promise<void>;
+  assertBindSources: (
+    sources: readonly import('./overlay.js').BindSource[],
+  ) => Promise<void>;
   digests: Record<string, string>;
   baseFile: string;
   runDir: string;
@@ -83,9 +85,47 @@ export class ComposeProvider implements EnvironmentProvider {
   async up(): Promise<EnvironmentContext> {
     const env = buildStackEnv(this.target);
 
+    // Mount the real file rather than writing a copy: the container then
+    // runs exactly the module the tests import, so the two cannot drift.
+    const stubDir =
+      this.deps.embedder === 'stub'
+        ? fileURLToPath(new URL('../../fixtures', import.meta.url))
+        : undefined;
+
     // Fail before boot: Docker turns a missing bind source into an empty
-    // directory, which surfaces as EISDIR inside a container much later.
-    await this.deps.assertBindSources([this.target.networkConfigPath]);
+    // directory, which surfaces as EISDIR inside a container much later --
+    // or worse, silently. The themes mount is `!override`, so an empty
+    // directory there REPLACES aggregator-dpg's themes with nothing and
+    // signals-ui's `login_theme: signals` fails at login, nowhere near the
+    // cause.
+    //
+    // Every source the overlay mounts, not just the network config: the
+    // other five were unchecked because the checker could only describe
+    // files, and four of them are directories.
+    await this.deps.assertBindSources([
+      this.target.networkConfigPath,
+      ...(this.deps.aggregatorRoot
+        ? ([
+            {
+              path: join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'render-realm.sh'),
+              kind: 'file',
+            },
+            {
+              path: join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'realms'),
+              kind: 'directory',
+            },
+            {
+              path: join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'providers'),
+              kind: 'directory',
+            },
+            {
+              path: join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'themes'),
+              kind: 'directory',
+            },
+          ] as const)
+        : []),
+      ...(stubDir ? ([{ path: stubDir, kind: 'directory' }] as const) : []),
+    ]);
 
     // And fail before boot on a service the base compose has grown that
     // the overlay does not neutralise. Left alone it keeps its fixed
@@ -114,13 +154,6 @@ export class ComposeProvider implements EnvironmentProvider {
         JSON.stringify(prepared.realm, null, 2),
       );
     }
-
-    // Mount the real file rather than writing a copy: the container then
-    // runs exactly the module the tests import, so the two cannot drift.
-    const stubDir =
-      this.deps.embedder === 'stub'
-        ? fileURLToPath(new URL('../../fixtures', import.meta.url))
-        : undefined;
 
     await this.deps.writeFile(this.envFile, renderEnvFile(env));
     await this.deps.writeFile(

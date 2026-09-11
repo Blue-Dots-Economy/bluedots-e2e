@@ -22,7 +22,13 @@ export const createProfile = (spec: { as: string }) =>
     // service_provider as well, and in a design where the label IS the
     // report line, printing "seeker" for a provider profile is wrong in
     // the business-facing report and in every recorder step key.
-    label: `Created a ${spec.as} profile`,
+    //
+    // Underscores become spaces: checkLabel rejects identifiers and
+    // defineJourney runs the guards at definition time, so
+    // "Created a service_provider profile" would throw at module load and
+    // take the suite with it -- on the very domain this label was written
+    // for.
+    label: `Created a ${spec.as.replace(/_/g, ' ')} profile`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const auth = requireContext(ctx.auth, 'authentication');

@@ -236,16 +236,40 @@ ${searchEnv}
  * erroring, so the mistake surfaces much later as an EISDIR crash inside a
  * container, with nothing pointing back at the path that was wrong.
  */
-export async function assertBindSources(paths: readonly string[]): Promise<void> {
-  for (const path of paths) {
+/**
+ * A mount source, and what it has to be.
+ *
+ * Four of the six the overlay mounts are directories -- the realm dir, the
+ * providers dir, the themes dir and the stub dir. A checker that demanded a
+ * file could not describe them, which is why only network.json was ever
+ * passed to it.
+ */
+export type BindSource = string | { path: string; kind: 'file' | 'directory' };
+
+export async function assertBindSources(sources: readonly BindSource[]): Promise<void> {
+  for (const source of sources) {
+    const { path, kind } = typeof source === 'string' ? { path: source, kind: 'file' as const } : source;
+
     let stats;
     try {
       stats = await stat(path);
     } catch {
-      throw new Error(`Bind source does not exist: ${path}`);
+      // Prefixed, because classifyFailure reads the prefix: without one, a
+      // wrong AGGREGATOR_DPG_PATH -- the likeliest misconfiguration on a
+      // fresh machine -- reported as a PRODUCT failure and would block the
+      // release candidate over a path on somebody's laptop.
+      throw new Error(
+        `BIND_SOURCE_MISSING: ${path} does not exist. Docker would create it as an ` +
+          `empty directory and the failure would surface much later, inside a container.`,
+      );
     }
-    if (!stats.isFile()) {
-      throw new Error(`Bind source is not a file: ${path}`);
+
+    const ok = kind === 'file' ? stats.isFile() : stats.isDirectory();
+    if (!ok) {
+      throw new Error(
+        `BIND_SOURCE_WRONG_KIND: ${path} is not a ${kind}. Mounting it would ` +
+          `${kind === 'file' ? 'shadow the file the container expects' : 'replace the directory with a single file'}.`,
+      );
     }
   }
 }

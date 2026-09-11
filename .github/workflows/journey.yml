@@ -45,6 +45,13 @@ on:
         # a full id, so an instance can be named when it matters. This list
         # is the one target enumeration that cannot be computed: GitHub
         # renders it when the form opens, before any job exists.
+        #
+        # KEEP IN STEP WITH THE JOURNEY REGISTRY. matrixEntries falls back
+        # to the precise id when two covered targets share a dot, so the day
+        # blue_dot/up-gzb is also covered, "blue_dot" matches neither label
+        # and this form offers a choice the prepare job rejects. Replace it
+        # with the two instance ids then. `journey --matrix` prints the
+        # labels this list should hold.
         options: ['', purple_dot, blue_dot]
         default: ''
 

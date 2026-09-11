@@ -108,6 +108,15 @@ describe('assertBindSources', () => {
     );
   });
 
+  test('accepts a directory where the mount is a directory', async () => {
+    // Four of the six bind sources are directories -- realms, providers,
+    // themes and the stub dir. Requiring a file for all of them meant they
+    // could not be checked at all, so they were not.
+    await expect(
+      assertBindSources([{ path: import.meta.dirname, kind: 'directory' }]),
+    ).resolves.toBeUndefined();
+  });
+
   test('refuses a directory where a file is required', async () => {
     await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(/not a file/);
   });
@@ -324,5 +333,22 @@ describe('embedder selection', () => {
     // The KEY, not the string: the comment above the service explains why
     // the name is preserved and would otherwise match its own explanation.
     expect(yaml).not.toMatch(/^\s*EMBEDDING_BASE_URL:/m);
+  });
+});
+
+describe('bind source failures are the harness\'s own', () => {
+  test('carry a prefix, so the report cannot blame the release for them', async () => {
+    // classifyFailure reads the prefix. Without one, a wrong
+    // AGGREGATOR_DPG_PATH -- the likeliest misconfiguration on a fresh
+    // machine -- reported as a PRODUCT failure and would block the RC.
+    await expect(assertBindSources(['/no/such/network.json'])).rejects.toThrow(
+      /^BIND_SOURCE_MISSING:/,
+    );
+    await expect(
+      assertBindSources([{ path: '/no/such/dir', kind: 'directory' }]),
+    ).rejects.toThrow(/^BIND_SOURCE_MISSING:/);
+    await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(
+      /^BIND_SOURCE_WRONG_KIND:/,
+    );
   });
 });

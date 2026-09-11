@@ -97,13 +97,15 @@ describe('journeys against a real stack', () => {
       // five ports against that one URL, which can only ever carry 2742 --
       // so four of the five iterations could not fail, and searchApi,
       // keycloak, postgres and redis were never checked at all.
-      const fixed = [5432, 5555, 6379, 8080, 8025, 2742, 3100];
+      //
+      // Compared as a number, not as a substring: ":5432" also matches
+      // localhost:54320, and 30 ports in the macOS ephemeral range contain
+      // one of these as a prefix -- roughly a 1-in-100 spurious failure per
+      // run across five endpoints.
+      const fixed = new Set([5432, 5555, 6379, 8080, 8025, 2742, 3100]);
       for (const [name, url] of Object.entries(stack.env.endpoints)) {
-        for (const port of fixed) {
-          expect(url, `${name} must not publish the base compose's ${port}`).not.toContain(
-            `:${port}`,
-          );
-        }
+        const port = Number(new URL(url.replace(/^[a-z+]+:\/\//, 'http://')).port);
+        expect(fixed.has(port), `${name} must not publish the base compose's ${port}`).toBe(false);
       }
     });
 

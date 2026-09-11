@@ -85,12 +85,24 @@ describe('coveredTargets', () => {
     expect(covered).toEqual(['purple_dot', 'blue_dot/ka-dhwd']);
   });
 
-  test('drops a declared target the schemas do not define', () => {
-    // Otherwise a typo in a journey's targets list becomes a matrix job
-    // that fails at target resolution, minutes in.
-    expect(
-      coveredTargets([{ id: 'purple_dot' }] as never, [{ targets: ['purple_dott'] }] as never),
-    ).toEqual([]);
+  test('refuses a declared target the schemas do not define', () => {
+    // Dropping it silently removed that target from the matrix entirely --
+    // no job, and no NOT COVERED line either, because no run for it ever
+    // happened. Silent coverage loss is the one thing this suite is built
+    // not to do.
+    expect(() =>
+      coveredTargets([{ id: 'purple_dot' }] as never, [
+        { id: 'J9', targets: ['purple_dott'] },
+      ] as never),
+    ).toThrow(/purple_dott/);
+  });
+
+  test('names the journey and the targets that do exist', () => {
+    expect(() =>
+      coveredTargets([{ id: 'purple_dot' }] as never, [
+        { id: 'J9', targets: ['purple_dott'] },
+      ] as never),
+    ).toThrow(/J9[^]*purple_dot\b/);
   });
 });
 

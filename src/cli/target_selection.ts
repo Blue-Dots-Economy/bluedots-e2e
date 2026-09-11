@@ -27,8 +27,27 @@ export function renderTargetList(
  */
 export function coveredTargets(
   targets: readonly Target[],
-  journeys: readonly { targets: readonly string[] }[],
+  journeys: readonly { id?: string; targets: readonly string[] }[],
 ): string[] {
+  const defined = new Set(targets.map((t) => t.id));
+
+  // A declared target the schemas do not define used to be dropped here.
+  // That removed it from the matrix entirely -- no job for it, and no NOT
+  // COVERED line either, because no run for it ever happened. A typo in a
+  // journey's targets list is exactly the silent coverage loss the rest of
+  // this suite is built to prevent.
+  for (const journey of journeys) {
+    for (const target of journey.targets) {
+      if (!defined.has(target)) {
+        throw new Error(
+          `JOURNEY_TARGET_UNKNOWN: ${journey.id ?? 'a journey'} declares "${target}", ` +
+            `which the schemas do not define. They define ${[...defined].join(', ')}. ` +
+            `A target nobody can resolve is coverage nobody gets.`,
+        );
+      }
+    }
+  }
+
   const declared = new Set(journeys.flatMap((j) => j.targets));
   return targets.map((t) => t.id).filter((id) => declared.has(id));
 }

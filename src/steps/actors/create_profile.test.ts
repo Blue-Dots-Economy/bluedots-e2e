@@ -79,4 +79,19 @@ describe('createProfile', () => {
     expect(seen[0]).toBe(seen[1]);
     expect(seen[0]).toContain('abc123');
   });
+
+  test('reads a snake_case domain as words, so the label passes its own guard', () => {
+    // checkLabel rejects identifiers and defineJourney runs the guards at
+    // definition time, so `Created a service_provider profile` throws at
+    // module load and takes the whole suite with it. blue_dot/ka-dhwd
+    // declares service_provider -- the domain the dynamic label was written
+    // for in the first place.
+    expect(createProfile({ as: 'service_provider' }).label).toBe(
+      'Created a service provider profile',
+    );
+  });
+
+  test('still reads naturally for a one-word domain', () => {
+    expect(createProfile({ as: 'seeker' }).label).toBe('Created a seeker profile');
+  });
 });

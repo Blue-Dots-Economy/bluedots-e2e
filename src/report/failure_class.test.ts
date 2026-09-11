@@ -32,6 +32,9 @@ describe('classifyFailure', () => {
       'FIXTURE_UNSUPPORTED: no generator for pattern ^[A-Z]{3}$',
       'SEED_FAILED: apikey already existed',
       'INGEST_PROBE_UNREADABLE: could not read the dead-letter stream',
+      'BIND_SOURCE_MISSING: /x/aggregator-dpg/infra/keycloak/render-realm.sh does not exist',
+      'BIND_SOURCE_WRONG_KIND: /x/themes is not a directory',
+      'SPEC_NOT_FOUND: no openapi.json on signals-dpg',
     ]) {
       expect(classifyFailure(message), message).toBe('harness');
     }
