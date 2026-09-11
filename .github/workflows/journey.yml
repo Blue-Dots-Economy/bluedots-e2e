@@ -69,6 +69,10 @@ jobs:
       # started from -- usually main -- NOT inputs.tag, so using it for the
       # checkouts would overlay main's compose while the report named the RC.
       RESOLVED_TAG: ${{ inputs.tag || github.ref_name }}
+      # Each checkout follows ITS OWN service tag, so the compose base and
+      # the realm come from the same release as the image being tested.
+      SIGNALS_DPG_REF: ${{ inputs.signals_dpg_tag || inputs.tag || github.ref_name }}
+      AGGREGATOR_DPG_REF: ${{ inputs.aggregator_dpg_tag || inputs.tag || github.ref_name }}
     steps:
       - name: check the release tag looks like one
         run: |
@@ -83,6 +87,33 @@ jobs:
             *) echo "::error::Unknown target '${{ matrix.target }}'."; exit 1 ;;
           esac
           echo "TARGET_SLUG=$(printf '%s' '${{ matrix.target }}' | tr '/' '-')" >> "$GITHUB_ENV"
+
+      # A tag is not always cut fleet-wide. Today 202608-s1-rc4 exists only
+      # on signals-dpg, and 202608-s1-rc2 and -rc3 only on signals-dpg and
+      # aggregator-dpg. Without this, a dispatch naming one of those dies at
+      # actions/checkout with an opaque git error and the reader has to work
+      # out which repo was missing it.
+      #
+      # Each repo is checked at the tag IT will be used at, which is not
+      # always RESOLVED_TAG: a per-service override moves that service's
+      # image, and its checkout has to move with it or the compose base and
+      # realm come from a different release than the image under test.
+      - name: preflight the tags on every pinned repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          missing=0
+          check() {
+            if ! gh api "repos/Blue-Dots-Economy/$1/git/ref/tags/$2" >/dev/null 2>&1; then
+              echo "::error::$2 was not cut on $1. A journey run checks out each provider at the tag its image uses; cut the tag there, or pick one that exists on every repo."
+              missing=1
+            else
+              echo "ok  $1 @ $2"
+            fi
+          }
+          check signals-dpg "$SIGNALS_DPG_REF"
+          check aggregator-dpg "$AGGREGATOR_DPG_REF"
+          exit $missing
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -109,12 +140,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/signals-dpg
-          ref: ${{ env.RESOLVED_TAG }}
+          ref: ${{ env.SIGNALS_DPG_REF }}
           path: .checkouts/Signals-DPG
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/aggregator-dpg
-          ref: ${{ env.RESOLVED_TAG }}
+          ref: ${{ env.AGGREGATOR_DPG_REF }}
           path: .checkouts/aggregator-dpg
       # bluedots-schemas carries no tags, so main is unavoidable. The
       # resolved SHA is recorded below so a re-run stays attributable.
@@ -139,6 +170,8 @@ jobs:
             echo "signals_dpg_sha=$(git -C .checkouts/Signals-DPG rev-parse HEAD)"
             echo "aggregator_dpg_sha=$(git -C .checkouts/aggregator-dpg rev-parse HEAD)"
             echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
+            echo "signals_dpg_ref=$SIGNALS_DPG_REF"
+            echo "aggregator_dpg_ref=$AGGREGATOR_DPG_REF"
             echo "signals_dpg_tag=${{ inputs.signals_dpg_tag || env.RESOLVED_TAG }}"
             echo "aggregator_dpg_tag=${{ inputs.aggregator_dpg_tag || env.RESOLVED_TAG }}"
             echo "signals_search_tag=${{ inputs.signals_search_tag || env.RESOLVED_TAG }}"
