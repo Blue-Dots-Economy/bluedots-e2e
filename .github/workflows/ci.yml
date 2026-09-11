@@ -59,7 +59,7 @@ jobs:
 
       - name: build the published cli
         if: steps.harness.outputs.present == 'true'
-        # package.json's bin points at dist/cli/main.js. Nothing ran the
+        # package.json's bin points at dist/src/cli/main.js. Nothing ran the
         # build, so the entry point was free to rot -- and did: the script
         # referenced a tsconfig.build.json that did not exist.
         run: |
