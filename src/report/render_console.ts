@@ -1,4 +1,5 @@
 import type { CaseReport, RunReport } from './render_html.js';
+import { duration, failedRequests } from './format.js';
 
 /**
  * Newman-style console output.
@@ -11,7 +12,7 @@ import type { CaseReport, RunReport } from './render_html.js';
  * finds what broke without hunting back through the run.
  */
 
-const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`);
+const ms = duration;
 
 /** `a > b > c` becomes group `b` and name `c`; the outermost describe is noise. */
 function split(name: string): { group: string; leaf: string } {
@@ -86,6 +87,9 @@ export function renderNewman(report: RunReport): string {
       [
         ['journeys', journeysRun, journeysFailed],
         ['checks', executed, failed],
+        // Through the shared predicate, so the job log and report.html
+        // cannot describe the same run with different numbers.
+        ['requests', (report.http ?? []).length, failedRequests(report.http ?? []).length],
       ],
       [`total run duration: ${ms(total)}`],
     ),

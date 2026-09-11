@@ -1,12 +1,8 @@
 /** Every service whose image a run resolves. */
-export const SERVICES = [
-  'signals-dpg',
-  'signals-search',
-  'aggregator-dpg',
-  'notification-service',
-] as const;
+// Re-exported, not redeclared: see src/services/registry.ts.
+import { SERVICES, type Service } from '../services/registry.js';
 
-export type Service = (typeof SERVICES)[number];
+export { SERVICES, type Service };
 
 /** `{ __all__: branch }` moves every service; named keys move one each. */
 export const ALL_SERVICES = '__all__';
@@ -17,6 +13,10 @@ export type Args = {
   env: string;
   journey: string | null;
   list: boolean;
+  /** With --list: emit JSON, for a workflow matrix rather than a person. */
+  json: boolean;
+  /** With --list: only targets a journey declares. */
+  covered: boolean;
   keepStack: boolean;
   branch: Record<string, string> | null;
   imagesFromTag: string | null;
@@ -30,7 +30,7 @@ const VALUE_FLAGS = new Set([
   '--branch',
   '--images-from-tag',
 ]);
-const BOOL_FLAGS = new Set(['--list', '--keep-stack']);
+const BOOL_FLAGS = new Set(['--list', '--json', '--covered', '--keep-stack']);
 
 function parseBranch(raw: string): Record<string, string> {
   // A bare branch applies to every service; `service=branch` pairs move one
@@ -59,6 +59,8 @@ export function parseArgs(argv: readonly string[]): Args {
     env: 'local',
     journey: null,
     list: false,
+    json: false,
+    covered: false,
     keepStack: false,
     branch: null,
     imagesFromTag: null,
@@ -69,6 +71,8 @@ export function parseArgs(argv: readonly string[]): Args {
 
     if (BOOL_FLAGS.has(flag)) {
       if (flag === '--list') args.list = true;
+      if (flag === '--json') args.json = true;
+      if (flag === '--covered') args.covered = true;
       if (flag === '--keep-stack') args.keepStack = true;
       continue;
     }

@@ -1,11 +1,10 @@
 import { caseNameOf, type JourneyView } from './journey_views.js';
+import { duration, failedRequests, isFailedRequest, seconds } from './format.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
 
 /** A pipe ends a table cell, so any text going into one has to lose it. */
 const cell = (text: string) => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
-const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : seconds(ms));
 
 const MARK = { passed: '✅', failed: '❌', skipped: '⏭️' } as const;
 const STEP_MARK = { passed: '✅', failed: '❌', 'not-reached': '⏭️' } as const;
@@ -30,7 +29,7 @@ function failureDetail(journey: JourneyView): string {
   for (const step of journey.steps) {
     lines.push(`${STEP_MARK[step.status]} ${step.label} — ${duration(step.durationMs)}`);
     if (step.error) lines.push('', '```', excerpt(step.error), '```');
-    for (const h of step.http.filter((c) => c.error || (c.status !== null && c.status >= 400))) {
+    for (const h of step.http.filter(isFailedRequest)) {
       lines.push('', failedRequest(h));
     }
     lines.push('');
@@ -52,7 +51,7 @@ export function renderMarkdown(report: RunReport): string {
   const cases = report.suites.flatMap((s) => s.cases);
   const journeys = report.journeys ?? [];
   const http = report.http ?? [];
-  const failedHttp = http.filter((h) => h.error || (h.status !== null && h.status >= 400));
+  const failedHttp = failedRequests(http);
   const failedCases = cases.filter((c) => !c.ok);
   const ok = failedCases.length === 0;
   const totalMs = report.suites.reduce((sum, s) => sum + s.durationMs, 0);

@@ -153,6 +153,13 @@ export function buildSearchBody(key: ItemKey, filter: { field: string; value: un
           ? [{ op: 'eq' as const, target: `item_state.${filter.field}`, value: filter.value }]
           : [],
       },
+      // Explicit, and the largest page signals-search allows. The default
+      // is 20, and the unfiltered probe uses this body to decide whether
+      // the item is visible AT ALL -- so against a shared or long-lived
+      // environment this run's item falls off page one and the step
+      // reports "not visible to search", which is precisely the misleading
+      // diagnostic the rest of this step works to avoid.
+      pagination: { limit: 100, offset: 0 },
     },
   };
 }

@@ -1,3 +1,5 @@
+import { SERVICES, SERVICE_REGISTRY, type Service } from '../services/registry.js';
+
 /**
  * Where each service's committed OpenAPI spec lives.
  *
@@ -5,20 +7,23 @@
  * repository. Vendoring lets them drift silently, which is the same argument
  * the design makes against baking network schemas.
  */
-export const SPEC_SOURCES = {
-  'signals-dpg': { repo: 'Blue-Dots-Economy/signals-dpg', path: 'openapi.json' },
-  'aggregator-dpg': { repo: 'Blue-Dots-Economy/aggregator-dpg', path: 'openapi.json' },
-  'signals-search': { repo: 'Blue-Dots-Economy/signals-search', path: 'openapi.json' },
-} as const;
+export const SPEC_SOURCES = Object.fromEntries(
+  SERVICES.filter((s) => SERVICE_REGISTRY[s].openapi !== null).map((s) => [
+    s,
+    { repo: SERVICE_REGISTRY[s].repo, path: SERVICE_REGISTRY[s].openapi as string },
+  ]),
+) as Record<Service, { repo: string; path: string }>;
 
-export type SpecService = keyof typeof SPEC_SOURCES;
+export type SpecService = Service;
 
 /**
  * notification-service publishes no openapi.json. Recorded here rather than
  * merely omitted, so nobody "fixes" the gap by vendoring a hand-written spec
  * that would then drift from the service with nothing to catch it.
  */
-export const specsWithoutOpenapi = ['notification-service'] as const;
+export const specsWithoutOpenapi = SERVICES.filter(
+  (s) => SERVICE_REGISTRY[s].openapi === null,
+);
 
 export type SpecFetcher = {
   /** Resolve a branch or tag to the commit sha it currently points at. */

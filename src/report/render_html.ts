@@ -1,4 +1,5 @@
 import { SECRET_HEADERS } from './http_recorder.js';
+import { duration, escapeHtml as escape, failedRequests, isFailedRequest, seconds } from './format.js';
 import { caseNameOf, type JourneyView, type StepView } from './journey_views.js';
 
 export type CaseReport = {
@@ -46,18 +47,6 @@ export type RunReport = {
   startedAt?: string;
 };
 
-function escape(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
-
-/** Requests are mostly sub-second, where "0.0s" says nothing. */
-const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : seconds(ms));
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
@@ -103,7 +92,7 @@ function statusClass(h: HttpEntryView): string {
 }
 
 function renderHttp(h: HttpEntryView): string {
-  const failed = Boolean(h.error) || (h.status !== null && h.status >= 400);
+  const failed = isFailedRequest(h);
   const detail = [
     Object.keys(h.requestHeaders).length
       ? `<div><div class="blk-label">Request headers</div>${headerTable(h.requestHeaders)}</div>`
@@ -263,7 +252,7 @@ export function renderHtml(report: RunReport): string {
   const failedCases = cases.filter((c) => !c.ok);
   const ok = failedCases.length === 0;
   const http = report.http ?? [];
-  const failedHttp = http.filter((h) => h.error || (h.status !== null && h.status >= 400));
+  const failedHttp = failedRequests(http);
   const totalMs = report.suites.reduce((sum, s) => sum + s.durationMs, 0);
 
   const journeys = report.journeys;

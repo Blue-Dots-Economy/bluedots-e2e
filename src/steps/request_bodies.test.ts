@@ -141,3 +141,18 @@ describe('buildSearchBody', () => {
     expect(body.message.intent.filters[0]!.value).toBe('journey-beneficiary_name-seed-1');
   });
 });
+
+describe('buildSearchBody pagination', () => {
+  test('asks for the largest page the API allows', () => {
+    // The unfiltered probe decides whether the item is visible at all. On
+    // the default page of 20, a busy index pushes this run's item off it
+    // and the step reports "not visible to search -- check lifecycle_status",
+    // which is the misleading diagnostic the rest of this file avoids.
+    const body = buildSearchBody(
+      { network: 'purple_dot', domain: 'seeker', type: 'profile_1.0', id: 'itm_1' },
+      null,
+    );
+
+    expect(body.message.pagination).toEqual({ limit: 100, offset: 0 });
+  });
+});

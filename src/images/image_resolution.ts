@@ -1,39 +1,16 @@
-import { SERVICES, ALL_SERVICES, type Service } from '../cli/args.js';
+import { ALL_SERVICES } from '../cli/args.js';
+import { SERVICES, SERVICE_REGISTRY, type Service } from '../services/registry.js';
 
 const REGISTRY = 'ghcr.io/blue-dots-economy';
 
 /**
- * Registry layout is NOT uniform across the fleet, so this is a lookup rather
- * than a formula:
- *
- *   signals-dpg           /<component>   matrix is api, ui
- *   aggregator-dpg        /<component>   matrix is api, web, worker (no "ui")
- *   signals-search        (none)         ONE image for api and worker
- *   notification-service  (none)         no matrix
+ * Registry layout is NOT uniform across the fleet -- some services publish
+ * one image per component and some publish one image -- so this is a lookup
+ * rather than a formula. The lookup lives in the service registry, with
+ * everything else that differs per service.
  */
-const PER_COMPONENT: Record<Service, boolean> = {
-  'signals-dpg': true,
-  'aggregator-dpg': true,
-  'signals-search': false,
-  'notification-service': false,
-};
-
-/**
- * Default tag per service.
- *
- * `develop` is published only after CI passes, so it is never a red build.
- * notification-service is the exception: its build workflow triggers on
- * `main` and `feature` only, so it publishes no `:develop` at all.
- */
-const DEFAULT_TAG: Record<Service, string> = {
-  'signals-dpg': 'develop',
-  'aggregator-dpg': 'develop',
-  'signals-search': 'develop',
-  'notification-service': 'main',
-};
-
 export function imageRef(service: Service, component: string, tag: string): string {
-  const path = PER_COMPONENT[service] ? `${service}/${component}` : service;
+  const path = SERVICE_REGISTRY[service].perComponent ? `${service}/${component}` : service;
   return `${REGISTRY}/${path}:${tag}`;
 }
 
@@ -64,7 +41,7 @@ export function resolveTags(opts: {
       continue;
     }
     const all = opts.branch?.[ALL_SERVICES];
-    out[service] = opts.branch?.[service] ?? all ?? DEFAULT_TAG[service];
+    out[service] = opts.branch?.[service] ?? all ?? SERVICE_REGISTRY[service].defaultTag;
   }
   return out;
 }

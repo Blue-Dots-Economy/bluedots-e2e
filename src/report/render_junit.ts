@@ -1,12 +1,6 @@
+import { escapeHtml as escape } from './format.js';
 import type { Summary } from './summary.js';
 
-function escape(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 /**
  * JUnit XML, derived from the summary purely to feed GitHub's check UI.

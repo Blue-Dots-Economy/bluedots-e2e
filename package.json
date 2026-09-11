@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "bin": {
-    "journey": "./dist/cli/main.js"
+    "journey": "./dist/src/cli/main.js"
   },
   "scripts": {
     "journey": "tsx src/cli/main.ts",

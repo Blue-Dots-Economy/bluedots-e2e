@@ -82,3 +82,22 @@ describe('renderNewman', () => {
     expect(renderNewman(passing)).not.toMatch(/failure\s+detail/i);
   });
 });
+
+test('counts requests the same way the html does', () => {
+  // The console renderer had no request row and no failed-request test of
+  // its own, so the job log and report.html could describe the same run
+  // with different numbers.
+  const http = [
+    { step: null, method: 'POST', url: 'http://x/a', status: 200, durationMs: 1, requestHeaders: {} },
+    { step: null, method: 'POST', url: 'http://x/b', status: 400, durationMs: 1, requestHeaders: {} },
+    { step: null, method: 'POST', url: 'http://x/c', status: null, durationMs: 1, requestHeaders: {}, error: 'ECONNREFUSED' },
+  ];
+
+  const text = renderNewman({
+    releaseTag: 'v1', target: 'purple_dot', provenance: {},
+    suites: [{ name: 's', durationMs: 10, cases: [{ name: 'a > b', ok: true, durationMs: 10 }] }],
+    http,
+  });
+
+  expect(text).toMatch(/requests\s*│\s*3\s*│\s*2/);
+});

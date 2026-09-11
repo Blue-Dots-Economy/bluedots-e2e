@@ -2,12 +2,14 @@
 import { createInterface } from 'node:readline/promises';
 import { stderr, stdin, stdout } from 'node:process';
 import { parseArgs } from './args.js';
-import { renderTargetList, resolveSelection } from './target_selection.js';
+import { coveredTargets, renderTargetList, resolveSelection } from './target_selection.js';
+import { ALL_JOURNEYS } from '../../journeys/index.js';
 import { listTargets, resolveTarget } from '../targets/target_discovery.js';
 import { schemasRoot } from '../config/paths.js';
 import { imageRef, resolveDigests, resolveTags } from '../images/image_resolution.js';
 import { dockerInspector } from '../images/docker_inspector.js';
 import { SERVICES } from './args.js';
+import { BOOTED_SERVICES } from '../services/registry.js';
 import { ComposeProvider } from '../env/compose/compose_provider.js';
 import { assertBindSources } from '../env/compose/overlay.js';
 import { dockerRun } from '../env/compose/docker_runner.js';
@@ -35,7 +37,12 @@ async function main(argv: string[]): Promise<number> {
   const targets = await listTargets(root);
 
   if (args.list) {
-    stdout.write(renderTargetList(targets));
+    // --covered is what the workflow asks for: the targets a journey
+    // declares, so the matrix cannot drift from the journey registry.
+    const listed = args.covered
+      ? targets.filter((t) => coveredTargets(targets, ALL_JOURNEYS).includes(t.id))
+      : targets;
+    stdout.write(renderTargetList(listed, { json: args.json }));
     return 0;
   }
 
@@ -78,7 +85,13 @@ async function main(argv: string[]): Promise<number> {
   for (const service of SERVICES) {
     refs[service] = imageRef(service, 'api', tags[service]);
   }
-  const digests = await resolveDigests(refs, dockerInspector);
+  // Only the services this run boots are required to resolve. A release is
+  // not always cut across all four repos -- 202608-s1-rc4 exists on
+  // signals-dpg alone -- and failing here on an image nothing starts blocks
+  // the verification that could have happened and reports nothing.
+  const digests = await resolveDigests(refs, dockerInspector, {
+    required: [...BOOTED_SERVICES],
+  });
 
   stdout.write('\nresolved images\n');
   for (const service of SERVICES) {

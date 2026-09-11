@@ -37,7 +37,7 @@ const response = (items: { item_id: string; item_state?: Record<string, unknown>
   new Response(
     JSON.stringify({
       context: { messageId: `journey-${ITEM_ID}`, networkId: 'purple_dot' },
-      message: { items, meta: { total: items.length, limit: 20, offset: 0 } },
+      message: { items, meta: { total: items.length, limit: 100, offset: 0 } },
     }),
     { status: 200 },
   );
@@ -123,5 +123,21 @@ describe('expectFoundInSearch', () => {
     await expectFoundInSearch().run(ctx(http));
 
     expect(new Set(calls)).toEqual(new Set(['http://search/v1/search']));
+  });
+
+  test('does not claim the item is missing when it only saw one page', async () => {
+    // total beyond the page means the probe cannot know. Saying "not
+    // visible to search -- check lifecycle_status" there sends the reader
+    // at the wrong subsystem.
+    const http = (async () =>
+      new Response(
+        JSON.stringify({
+          context: {},
+          message: { items: [], meta: { total: 4000, limit: 100, offset: 0 } },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/first 0 of 4000/);
   });
 });

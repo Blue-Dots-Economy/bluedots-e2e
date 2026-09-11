@@ -31,7 +31,11 @@ export const expectFoundInSearch = () =>
         // signals-search echoes the request context, and the request
         // carries messageId "journey-<item id>", so a whole-body check
         // matches its own echo and passes on zero results.
-        return ((await res.json()) as SearchResponse).message?.items ?? [];
+        const body = (await res.json()) as SearchResponse;
+        return {
+          items: body.message?.items ?? [],
+          total: body.message?.meta?.total ?? body.message?.items?.length ?? 0,
+        };
       };
 
       const where = `${key.network}/${key.domain}/${key.type}`;
@@ -43,12 +47,23 @@ export const expectFoundInSearch = () =>
       // response is no guide, since it echoes the unmasked values back to
       // the caller that wrote them.
       const visible = await search(null);
-      const row = visible.find((i) => i.item_id === key.id);
+      const row = visible.items.find((i) => i.item_id === key.id);
       if (!row) {
+        // Only claim absence when the whole set was seen. A page of a
+        // larger index says nothing about what is on the other pages, and
+        // pointing at lifecycle_status there sends the reader at the wrong
+        // subsystem entirely.
+        const sawEverything = visible.items.length >= visible.total;
         throw new Error(
-          `STEP_FAILED: ${key.id} is not visible to search. An unfiltered query of ${where} ` +
-            `returned ${visible.length} item(s), none of them this one, so the item reached ` +
-            `item_search but search cannot see it -- check lifecycle_status and the items join.`,
+          sawEverything
+            ? `STEP_FAILED: ${key.id} is not visible to search. An unfiltered query of ${where} ` +
+              `returned all ${visible.total} item(s) and this is not among them, so the item ` +
+              `reached item_search but search cannot see it -- check lifecycle_status and the ` +
+              `items join.`
+            : `STEP_FAILED: ${key.id} was not in the first ${visible.items.length} of ` +
+              `${visible.total} item(s) in ${where}, so whether search can see it is unknown. ` +
+              `This step's probe reads one page; against a shared or long-lived environment, ` +
+              `assert through a filtered query only.`,
         );
       }
 
@@ -56,7 +71,7 @@ export const expectFoundInSearch = () =>
       if (!field) throw new Error(noSurvivingField(written, row.item_state ?? {}));
 
       const filtered = await search({ field, value: written[field] });
-      if (filtered.some((i) => i.item_id === key.id)) return;
+      if (filtered.items.some((i) => i.item_id === key.id)) return;
 
       throw new Error(
         `STEP_FAILED: the filter matched nothing, though ${key.id} is in ${where} and ` +

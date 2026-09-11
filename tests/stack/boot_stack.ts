@@ -19,7 +19,7 @@ import {
   targetFromEnv,
 } from '../../src/targets/from_env.js';
 import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
-import { SERVICES } from '../../src/cli/args.js';
+import { BOOTED_SERVICES, SERVICES } from '../../src/services/registry.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
@@ -27,9 +27,6 @@ import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
-
-/** The services a journey run actually starts containers for. */
-const BOOTED_SERVICES = ['signals-dpg', 'signals-search'];
 
 export type BootedStack = {
   provider: ComposeProvider;
@@ -95,7 +92,7 @@ export async function bootStack(
   const digests = await resolveDigests(
     Object.fromEntries(SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])])),
     dockerInspector,
-    { required: BOOTED_SERVICES },
+    { required: [...BOOTED_SERVICES] },
   );
 
   const provider = new ComposeProvider(resolved, {

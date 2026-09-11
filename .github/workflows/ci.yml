@@ -64,4 +64,4 @@ jobs:
         # referenced a tsconfig.build.json that did not exist.
         run: |
           pnpm build
-          test -f dist/cli/main.js
+          test -f dist/src/cli/main.js
