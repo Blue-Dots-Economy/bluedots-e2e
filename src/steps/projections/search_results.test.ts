@@ -9,6 +9,7 @@ const ctx = (http: typeof fetch): StepContext => ({
   state: {
     itemKey: { network: 'purple_dot', domain: 'seeker', type: 'profile_1.0', id: ITEM_ID },
     itemState: { beneficiary_name: 'journey-abc123' },
+    storedItemState: { beneficiary_name: 'journey-abc123' },
   },
   endpoints: { signalsApi: '', searchApi: 'http://search', keycloak: '', postgresUrl: '', redisUrl: '' },
   seeded: {},
@@ -17,7 +18,7 @@ const ctx = (http: typeof fetch): StepContext => ({
 });
 
 /** What signals-search returns: the request context, echoed, plus results. */
-const response = (items: { item_id: string }[]) =>
+const response = (items: { item_id: string; item_state?: Record<string, unknown> }[]) =>
   new Response(
     JSON.stringify({
       context: { messageId: `journey-${ITEM_ID}`, networkId: 'purple_dot' },
@@ -82,5 +83,49 @@ describe('expectFoundInSearch', () => {
     await expectFoundInSearch().run(ctx(http));
 
     expect(calls).toEqual(['http://search/v1/search']);
+  });
+
+  test('quotes the stored value, so nobody has to guess how it differs', async () => {
+    // The unfiltered re-query already carries the row. Printing what is
+    // actually stored turns "the stored value differs" into the answer --
+    // a masked value reads very differently from a trimmed one.
+    let call = 0;
+    const http = (async () => {
+      call += 1;
+      return call === 1
+        ? response([])
+        : response([{ item_id: ITEM_ID, item_state: { beneficiary_name: '***' } }]);
+    }) as unknown as typeof fetch;
+
+    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/stored "\*\*\*"/);
+  });
+
+  test('filters on a field the API stored unchanged, not one it rewrote', async () => {
+    // beneficiary_name is purple_dot's contact_fields.name and comes back
+    // masked, so a filter on it can never match. Comparing what was written
+    // against what came back picks a field that survived, without the
+    // journey needing per-network knowledge of which fields those are.
+    const bodies: string[] = [];
+    const http = (async (_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return response([{ item_id: ITEM_ID }]);
+    }) as unknown as typeof fetch;
+
+    const c = ctx(http);
+    c.state.itemState = { beneficiary_name: 'journey-name', address: 'journey-address' };
+    c.state.storedItemState = { beneficiary_name: '***', address: 'journey-address' };
+
+    await expectFoundInSearch().run(c);
+
+    expect(JSON.parse(bodies[0]!).message.intent.filters[0].target).toBe('item_state.address');
+  });
+
+  test('says so rather than filtering blind when nothing survived', async () => {
+    const http = (async () => response([{ item_id: ITEM_ID }])) as unknown as typeof fetch;
+    const c = ctx(http);
+    c.state.itemState = { beneficiary_name: 'journey-name' };
+    c.state.storedItemState = { beneficiary_name: '***' };
+
+    await expect(expectFoundInSearch().run(c)).rejects.toThrow(/no identifying field/i);
   });
 });

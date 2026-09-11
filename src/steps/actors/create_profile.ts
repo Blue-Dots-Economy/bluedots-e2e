@@ -1,7 +1,12 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
-import { buildUpsertBody, extractItemKey, ADULT_AGE } from '../request_bodies.js';
+import {
+  buildUpsertBody,
+  extractItemKey,
+  extractStoredItemState,
+  ADULT_AGE,
+} from '../request_bodies.js';
 import { buildItemState } from '../../fixtures/item_state.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
 
@@ -72,8 +77,8 @@ export const createProfile = (spec: { as: string }) =>
       if (!res.ok) {
         throw new Error(`STEP_FAILED: upsert ${res.status} ${await res.text()}`);
       }
-      state.itemKey = extractItemKey(
-        (await res.json()) as Parameters<typeof extractItemKey>[0],
-      );
+      const created = (await res.json()) as Parameters<typeof extractItemKey>[0];
+      state.itemKey = extractItemKey(created);
+      state.storedItemState = extractStoredItemState(created);
     },
   });

@@ -3,8 +3,10 @@ import { requireContext, requireState } from '../../journey/state.js';
 import { buildSearchBody } from '../request_bodies.js';
 import type { ItemKey } from '../../awaiters/ingest.js';
 
+type SearchItem = { item_id: string; item_state?: Record<string, unknown> };
+
 type SearchResponse = {
-  message?: { items?: { item_id: string }[]; meta?: { total?: number } };
+  message?: { items?: SearchItem[]; meta?: { total?: number } };
 };
 
 /** Assert set membership, never rank position. */
@@ -15,12 +17,26 @@ export const expectFoundInSearch = () =>
       const auth = requireContext(ctx.auth, 'authentication');
       const key = requireState(ctx.state, 'itemKey');
 
-      // Isolate this run's item by a generated, seed-distinct text field.
+      // Isolate this run's item by a generated, seed-distinct text field --
+      // and only one the API stored unchanged. purple_dot's
+      // beneficiary_name is its contact_fields.name and comes back masked,
+      // so a filter on it can never match. Comparing written against stored
+      // finds a surviving field without per-network knowledge of which
+      // fields get rewritten.
       const itemState = requireState(ctx.state, 'itemState');
-      const field = Object.keys(itemState).find(
+      const stored = requireState(ctx.state, 'storedItemState');
+      const candidates = Object.keys(itemState).filter(
         (k) => typeof itemState[k] === 'string' && String(itemState[k]).startsWith('journey'),
       );
-      if (!field) throw new Error('STEP_FAILED: no identifying field in the fixture');
+      const field = candidates.find((k) => stored[k] === itemState[k]);
+      if (!field) {
+        throw new Error(
+          `STEP_FAILED: no identifying field survived the write. Tried ` +
+            `${candidates.join(', ') || '(none)'}; the API stored ` +
+            `${JSON.stringify(Object.fromEntries(candidates.map((k) => [k, stored[k]])))}. ` +
+            `Search can only isolate this run's item by a field it stores verbatim.`,
+        );
+      }
 
       const search = async (filter: { field: string; value: unknown } | null) => {
         const res = await ctx.http(`${ctx.endpoints.searchApi}/v1/search`, {
@@ -39,7 +55,7 @@ export const expectFoundInSearch = () =>
         return ((await res.json()) as SearchResponse).message?.items ?? [];
       };
 
-      const found = (items: { item_id: string }[]) => items.some((i) => i.item_id === key.id);
+      const found = (items: SearchItem[]) => items.some((i) => i.item_id === key.id);
 
       const filtered = await search({ field, value: itemState[field] });
       if (found(filtered)) return;
@@ -56,15 +72,29 @@ function describeMiss(
   key: ItemKey,
   field: string,
   value: unknown,
-  filtered: { item_id: string }[],
-  unfiltered: { item_id: string }[],
+  filtered: SearchItem[],
+  unfiltered: SearchItem[],
 ): string {
   const where = `${key.network}/${key.domain}/${key.type}`;
-  if (unfiltered.some((i) => i.item_id === key.id)) {
+  const ours = unfiltered.find((i) => i.item_id === key.id);
+  if (ours) {
+    // The row is right here, so the message quotes what is stored rather
+    // than saying it differs and leaving the reader to go and look. A
+    // masked value reads very differently from a trimmed one.
+    const stored = ours.item_state?.[field];
+    // The whole row, not just the one field: the create response can echo
+    // a value the searchable mirror does not hold, so this is the only
+    // place that says what search actually has to match against.
+    const strings = Object.fromEntries(
+      Object.entries(ours.item_state ?? {}).filter(([, v]) => typeof v === 'string'),
+    );
     return (
       `STEP_FAILED: the filter matched nothing, though ${key.id} is in ${where}. ` +
       `eq item_state.${field} = ${JSON.stringify(value)} returned ${filtered.length} item(s); ` +
-      `unfiltered returned ${unfiltered.length}. The stored value differs from the one written.`
+      `unfiltered returned ${unfiltered.length}, and that row has ${field} ` +
+      `stored ${JSON.stringify(stored ?? null)}. Filtering on a field the API rewrites ` +
+      `(a masked contact field, say) can never match what the journey wrote. ` +
+      `The row's string fields as search holds them: ${JSON.stringify(strings)}`
     );
   }
   return (
