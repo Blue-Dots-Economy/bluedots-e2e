@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { embeddingFor, STUB_EMBEDDER_SOURCE } from './stub_embedder.js';
+// Imports the SAME file the container runs. The point of this test is lost
+// if it exercises a TypeScript copy of the algorithm instead.
+import { embeddingFor, createServer } from './stub_embedder.js';
 
 describe('embeddingFor', () => {
   test('returns the dimension the column requires', () => {
@@ -15,16 +17,23 @@ describe('embeddingFor', () => {
   });
 
   test('gives different text different vectors', () => {
-    // Two fixtures embedding identically would make a search assertion
-    // ambiguous about which item it matched.
     expect(embeddingFor('alpha', 8)).not.toEqual(embeddingFor('beta', 8));
   });
 
   test('is unit-normalised, since search ranks by cosine distance', () => {
     const v = embeddingFor('anything', 64);
-    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    const norm = Math.sqrt(v.reduce((s: number, x: number) => s + x * x, 0));
 
     expect(norm).toBeCloseTo(1, 6);
+  });
+
+  test('spans negative and positive, not one orthant', () => {
+    // An all-positive vector puts every fixture in the same orthant and
+    // collapses the distances between them.
+    const v = embeddingFor('anything', 256);
+
+    expect(v.some((x: number) => x < 0)).toBe(true);
+    expect(v.some((x: number) => x > 0)).toBe(true);
   });
 
   test('produces finite numbers only', () => {
@@ -33,22 +42,42 @@ describe('embeddingFor', () => {
   });
 });
 
-describe('STUB_EMBEDDER_SOURCE', () => {
-  test('serves the OpenAI-shaped route signals-search calls', () => {
+describe('createServer', () => {
+  test('answers the OpenAI-shaped route signals-search calls', async () => {
     // The client requests `${EMBEDDING_BASE_URL}/embeddings` and reads
-    // json.data[].embedding.
-    expect(STUB_EMBEDDER_SOURCE).toContain('/embeddings');
-    expect(STUB_EMBEDDER_SOURCE).toContain('data');
+    // json.data[].embedding. Exercising the real server, not a description
+    // of one.
+    const http = await import('node:http');
+    const server = createServer(http.default, 8);
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'stub', input: ['one', 'two'] }),
+      });
+      const body = (await res.json()) as { data: { embedding: number[] }[] };
+
+      expect(res.status).toBe(200);
+      expect(body.data).toHaveLength(2);
+      expect(body.data[0]!.embedding).toHaveLength(8);
+    } finally {
+      server.close();
+    }
   });
 
-  test('depends only on node builtins, so it runs with no install', () => {
-    // It runs inside an image pulled for another purpose, so a third-party
-    // dependency would mean another image to build and pull -- which is the
-    // cost this exists to avoid. node: builtins are fine.
-    const requires = [...STUB_EMBEDDER_SOURCE.matchAll(/require\(['"]([^'"]+)['"]\)/g)]
-      .map((m) => m[1]!);
+  test('404s an unrelated path rather than embedding it', async () => {
+    const http = await import('node:http');
+    const server = createServer(http.default, 8);
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as { port: number }).port;
 
-    expect(requires.length).toBeGreaterThan(0);
-    expect(requires.every((r) => r.startsWith('node:'))).toBe(true);
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/v1/models`)).status).toBe(404);
+    } finally {
+      server.close();
+    }
   });
 });

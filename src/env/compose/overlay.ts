@@ -145,7 +145,7 @@ ${unnamed}
     image: ghcr.io/blue-dots-economy/signals-search@${digests['signals-search']}
     platform: !reset null
     entrypoint: !override ["node"]
-    command: !override ["/stub/embedder.js"]
+    command: !override ["/stub/stub_embedder.js"]
     environment:
       EMBEDDING_DIM: "1024"
     volumes: !override

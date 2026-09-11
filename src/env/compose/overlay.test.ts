@@ -267,7 +267,7 @@ describe('embedder selection', () => {
 
     expect(yaml).toContain('tei-embeddings:');
     expect(yaml).toContain('signals-search@sha256:b');
-    expect(yaml).toContain('/stub/embedder.js');
+    expect(yaml).toContain('/stub/stub_embedder.js');
   });
 
   test('keeps the service name, so nothing downstream has to know', () => {

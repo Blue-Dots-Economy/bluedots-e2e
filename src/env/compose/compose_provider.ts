@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { EnvironmentContext, EnvironmentProvider } from '../provider.js';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
 import { buildStackEnv, renderEnvFile } from './stack_env.js';
@@ -9,7 +10,7 @@ import { assertSchemaReady } from '../schema_gate.js';
 import { enableDirectGrant, type KeycloakAdmin } from '../keycloak_setup.js';
 import { createKcadmAdmin } from '../kcadm.js';
 import { prepareRealm } from '../realm_prepare.js';
-import { STUB_EMBEDDER_SOURCE } from '../../fixtures/stub_embedder.js';
+
 
 export type ComposeDeps = {
   run: (args: string[]) => Promise<string>;
@@ -96,11 +97,12 @@ export class ComposeProvider implements EnvironmentProvider {
       );
     }
 
-    let stubDir: string | undefined;
-    if (this.deps.embedder === 'stub') {
-      stubDir = join(this.deps.runDir, 'stub');
-      await this.deps.writeFile(join(stubDir, 'embedder.js'), STUB_EMBEDDER_SOURCE);
-    }
+    // Mount the real file rather than writing a copy: the container then
+    // runs exactly the module the tests import, so the two cannot drift.
+    const stubDir =
+      this.deps.embedder === 'stub'
+        ? fileURLToPath(new URL('../../fixtures', import.meta.url))
+        : undefined;
 
     await this.deps.writeFile(this.envFile, renderEnvFile(env));
     await this.deps.writeFile(
