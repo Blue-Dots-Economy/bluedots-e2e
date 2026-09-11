@@ -130,6 +130,10 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
 
     ctx = {
       clients: {},
+      // Unrecorded on purpose: this file boots a deliberately broken stack
+      // and its failures are the expected result, so they are not evidence
+      // anyone reads in the release report.
+      http: fetch,
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
       state: { seed: seedFromEnv(process.env) },

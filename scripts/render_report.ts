@@ -7,7 +7,7 @@
  * visible without downloading anything.
  */
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
-import { renderHtml } from '../src/report/render_html.js';
+import { renderHtml, type HttpEntryView } from '../src/report/render_html.js';
 import { renderNewman } from '../src/report/render_console.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
 import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
@@ -43,14 +43,19 @@ const provenance = Object.fromEntries(
   }),
 );
 
+// Recorded by the suite (tests/stack/journeys.stack.test.ts). Absent when
+// the suite never got as far as making a request, which is itself fine --
+// the report then simply has no request section.
+const httpRaw = await read(`${REPORTS}/http.json`);
+const http = httpRaw ? (JSON.parse(httpRaw) as HttpEntryView[]) : undefined;
+
 const report = {
   releaseTag: provenance.release_tag ?? process.env.JOURNEY_RELEASE_TAG ?? '(local run)',
   target: provenance.target ?? process.env.JOURNEY_TARGET ?? '(unspecified)',
   provenance,
   suites,
+  ...(http ? { http } : {}),
 };
-
-await writeFile(`${REPORTS}/report.html`, renderHtml(report));
 
 // summary.json is the canonical record the tiered renderers read. Without
 // this the evidence sheet and the derived JUnit were unreachable from a
@@ -81,6 +86,20 @@ const summary = buildSummary({
     };
   }),
 });
+
+// Rendered after the summary because the overview counts journeys, and
+// only the registry knows how many there are -- JUnit case names do not.
+await writeFile(
+  `${REPORTS}/report.html`,
+  renderHtml({
+    ...report,
+    scenarios: {
+      total: summary.journeys.length,
+      passed: summary.journeys.filter((j) => j.ok).length,
+      failed: summary.journeys.filter((j) => !j.ok).length,
+    },
+  }),
+);
 
 await writeFile(`${REPORTS}/summary.json`, JSON.stringify(summary, null, 2));
 await writeFile(`${REPORTS}/trace.txt`, renderTier2(summary));

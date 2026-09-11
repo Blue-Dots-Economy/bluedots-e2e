@@ -3,6 +3,9 @@ import { CANARIES, runSelftest } from './canaries.js';
 
 const ctx = () => ({
   clients: {},
+  // Unused by these scenarios; present because every step context carries
+  // the recorded fetch.
+  http: (async () => new Response('{}')) as unknown as typeof fetch,
   state: {} as Record<string, unknown>,
   endpoints: { signalsApi: '', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
   seeded: {},

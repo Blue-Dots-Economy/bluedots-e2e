@@ -4,6 +4,13 @@ import type { Endpoints } from '../env/compose/ports.js';
 /** What a step is handed. State is the only thing that carries between steps. */
 export type StepContext = {
   clients: Record<string, unknown>;
+  /**
+   * Every HTTP call a step makes goes through this, never global fetch.
+   * A run wires the recorder in here so the report can show the request and
+   * the response behind a failure; it is required rather than optional so a
+   * new step cannot quietly opt out of being recorded.
+   */
+  http: typeof fetch;
   endpoints: Endpoints;
   seeded: Record<string, unknown>;
   state: Record<string, unknown>;
@@ -109,10 +116,14 @@ export type JourneyResult = {
 export async function runJourney(
   journey: Journey,
   ctx: StepContext,
+  hooks: { onStep?: (label: string) => void } = {},
 ): Promise<JourneyResult> {
   const trace: StepOutcome[] = [];
 
   for (const s of journey.steps) {
+    // Before the step runs: requests it makes belong to it, not to the
+    // step that happened to run before.
+    hooks.onStep?.(s.label);
     try {
       await s.run(ctx);
       trace.push({ label: s.label, ok: true });

@@ -3,6 +3,9 @@ import { defineJourney, step, custom, runJourney } from './define_journey.js';
 
 const ctx = () => ({
   clients: {},
+  // Unused by these scenarios; present because every step context carries
+  // the recorded fetch.
+  http: (async () => new Response('{}')) as unknown as typeof fetch,
   state: {} as Record<string, unknown>,
   endpoints: { signalsApi: '', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
   seeded: {},
@@ -160,5 +163,35 @@ describe('custom', () => {
 
     expect(s.isCustom).toBe(true);
     expect(s.label).toBe('Compared two rollups by hand');
+  });
+});
+
+describe('runJourney step attribution', () => {
+  test('announces each step label before running it', async () => {
+    const seen: string[] = [];
+    const order: string[] = [];
+    const j = defineJourney({
+      id: 'J2',
+      title: 'A new profile becomes findable in search',
+      capability: 'search-and-discovery',
+      targets: ['purple_dot'],
+      steps: [
+        step({ label: 'Created a seeker profile', run: async () => { order.push('ran:one'); } }),
+        step({ label: 'Found the profile in search', run: async () => { order.push('ran:two'); } }),
+      ],
+    });
+
+    await runJourney(j, ctx(), {
+      onStep: (label) => {
+        seen.push(label);
+        order.push(`announced:${label}`);
+      },
+    });
+
+    expect(seen).toEqual(['Created a seeker profile', 'Found the profile in search']);
+    // Announced BEFORE the step runs, or the recorder attributes the step's
+    // own requests to whatever ran previously.
+    expect(order[0]).toBe('announced:Created a seeker profile');
+    expect(order[1]).toBe('ran:one');
   });
 });

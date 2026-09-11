@@ -17,7 +17,7 @@ export const expectFoundInSearch = () =>
       );
       if (!field) throw new Error('STEP_FAILED: no identifying field in the fixture');
 
-      const res = await fetch(`${ctx.endpoints.searchApi}/v1/search`, {
+      const res = await ctx.http(`${ctx.endpoints.searchApi}/v1/search`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': auth.apiKey },
         body: JSON.stringify(buildSearchBody(key, { field, value: itemState[field] })),

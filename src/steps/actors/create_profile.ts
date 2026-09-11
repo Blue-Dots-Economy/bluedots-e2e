@@ -44,7 +44,7 @@ export const createProfile = (spec: { as: string }) =>
       // item_state.<field>, never item_id.
       state.itemState = itemState;
 
-      const res = await fetch(`${ctx.endpoints.signalsApi}/api/v1/admin/participant`, {
+      const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/admin/participant`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',

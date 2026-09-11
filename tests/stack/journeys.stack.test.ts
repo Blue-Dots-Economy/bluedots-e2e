@@ -15,6 +15,7 @@ import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
+import { createRecorder } from '../../src/report/http_recorder.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
 import { runJourney, type StepContext } from '../../src/journey/define_journey.js';
 import { selectJourneys } from '../../src/journey/select.js';
@@ -52,6 +53,10 @@ describe('journeys against a real stack', () => {
   let seeded: SeedResult;
   let probe: ReturnType<typeof createIngestProbe>;
   let baseCtx: Omit<StepContext, 'state'>;
+  // One recorder for the file: every journey's calls land in it, each
+  // attributed to the step that made it, and the whole lot is written out
+  // for the report once the stack comes down.
+  const recorder = createRecorder();
   let targetId: string;
 
   beforeAll(async () => {
@@ -123,6 +128,7 @@ describe('journeys against a real stack', () => {
 
     baseCtx = {
       clients: {},
+      http: recorder.fetch,
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
       target: {
@@ -141,6 +147,10 @@ describe('journeys against a real stack', () => {
   });
 
   afterAll(async () => {
+    // reports/ is what render_report.ts reads; the recording is useless if
+    // it only ever exists inside this process.
+    await mkdir('reports', { recursive: true });
+    await writeFile('reports/http.json', JSON.stringify(recorder.entries, null, 2));
     await probe?.close();
     await provider?.down();
   });
@@ -209,7 +219,13 @@ describe('journeys against a real stack', () => {
 
         // Seeded per run and printed, so a red run can be replayed exactly.
         const seed = seedFromEnv(process.env);
-        const result = await runJourney(journey, { ...baseCtx, state: { seed } });
+        const result = await runJourney(
+          journey,
+          { ...baseCtx, state: { seed } },
+          // The journey id travels with the label: the report shows one
+          // list of requests across every journey in the run.
+          { onStep: (label) => recorder.startStep(`${journey.id} — ${label}`) },
+        );
 
         expect(result.ok, JSON.stringify(result.trace, null, 2)).toBe(true);
       });

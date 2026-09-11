@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderHtml, type RunReport } from './render_html.js';
+import { renderHtml, type HttpEntryView, type RunReport } from './render_html.js';
 
 const REPORT: RunReport = {
   releaseTag: '202608-s2-rc1',
@@ -71,5 +71,94 @@ describe('renderHtml', () => {
     const html = renderHtml({ ...REPORT, suites: [REPORT.suites[0]!] });
 
     expect(html).toContain('PASSED');
+  });
+});
+
+describe('renderHtml overview and http detail', () => {
+  const WITH_HTTP: RunReport = {
+    ...REPORT,
+    http: [
+      {
+        step: 'Found the profile in search' as string | null, method: 'POST',
+        url: 'http://localhost:3100/v1/search', status: 400, durationMs: 42,
+        requestHeaders: { 'x-api-key': 'REDACTED' },
+        requestBody: '{"context":{"domain":"seeker"}}',
+        responseBody: '{"error":"VALIDATION_ERROR"}',
+      },
+      {
+        step: 'Created a seeker profile', method: 'POST',
+        url: 'http://localhost:2742/api/v1/admin/participant', status: 200,
+        durationMs: 120, requestHeaders: {},
+      },
+    ],
+  };
+
+  test('leads with counts a reader scans first', () => {
+    const html = renderHtml({ ...WITH_HTTP, scenarios: { total: 1, passed: 0, failed: 1 } });
+
+    // scenarios / passed / failed / requests, as newman's overview does.
+    expect(html).toMatch(/scenarios/i);
+    expect(html).toMatch(/passed/i);
+    expect(html).toMatch(/requests/i);
+  });
+
+  test('labels the fallback counts as checks, not as scenarios', () => {
+    // Without journey counts the only numbers available are test cases.
+    // Calling those "scenarios" would overstate coverage in exactly the
+    // report someone uses to decide whether to ship.
+    const html = renderHtml(WITH_HTTP);
+
+    expect(html.slice(0, html.indexOf('</div>\n  </div>'))).not.toMatch(/scenarios/i);
+  });
+
+  test('counts scenarios from the journey registry, not from case names', () => {
+    // Deriving the count from the test names guesses: an environment check
+    // whose name happens to carry an em dash would be counted as a journey,
+    // and a journey the runner skipped would not be counted at all.
+    const html = renderHtml({ ...WITH_HTTP, scenarios: { total: 5, passed: 3, failed: 2 } });
+    const overview = html.slice(0, html.indexOf('</div>\n  </div>'));
+
+    expect(overview).toMatch(/>5<[^]*?scenarios/);
+    expect(overview).toMatch(/>3<[^]*?passed/);
+    expect(overview).toMatch(/>2<[^]*?failed/);
+  });
+
+  test('shows a sub-second request duration in milliseconds', () => {
+    // Every HTTP call rounds to "0.0s" otherwise, which hides the one
+    // number that distinguishes a slow call from a fast rejection.
+    const html = renderHtml(WITH_HTTP);
+
+    expect(html.slice(html.indexOf('failed-requests'))).toContain('42ms');
+  });
+
+  test('shows the failing request and its response', () => {
+    // "A step failed" is not actionable; the 400 body is.
+    const html = renderHtml(WITH_HTTP);
+
+    expect(html).toContain('VALIDATION_ERROR');
+    expect(html).toContain('/v1/search');
+  });
+
+  test('does not show successful requests in the failure detail', () => {
+    // A passing call is noise there; the run already says it passed.
+    const html = renderHtml(WITH_HTTP);
+    const detail = html.slice(html.indexOf('failed-requests'));
+
+    expect(detail).not.toContain('/api/v1/admin/participant');
+  });
+
+  test('never prints a credential, even one recorded by mistake', () => {
+    const leaked = {
+      ...WITH_HTTP,
+      http: [
+        { ...(WITH_HTTP.http![0] as HttpEntryView), requestHeaders: { 'x-api-key': 'sk_signals_live' } },
+      ],
+    };
+
+    expect(renderHtml(leaked)).not.toContain('sk_signals_live');
+  });
+
+  test('omits the http section entirely when nothing was recorded', () => {
+    expect(renderHtml(REPORT)).not.toContain('failed-requests');
   });
 });
