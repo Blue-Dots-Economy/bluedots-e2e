@@ -8,6 +8,8 @@
  */
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
 import { renderHtml, type HttpEntryView } from '../src/report/render_html.js';
+import { buildJourneyViews } from '../src/report/journey_views.js';
+import type { StepOutcome } from '../src/journey/define_journey.js';
 import { renderNewman } from '../src/report/render_console.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
 import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
@@ -46,6 +48,13 @@ const provenance = Object.fromEntries(
 // Recorded by the suite (tests/stack/journeys.stack.test.ts). Absent when
 // the suite never got as far as making a request, which is itself fine --
 // the report then simply has no request section.
+// Written by the suite: the real step traces. Without it the report falls
+// back to one line per journey, which is what JUnit can express.
+const runsRaw = await read(`${REPORTS}/journeys.json`);
+const runs = runsRaw
+  ? (JSON.parse(runsRaw) as { id: string; ok: boolean; trace: StepOutcome[] }[])
+  : [];
+
 const httpRaw = await read(`${REPORTS}/http.json`);
 const http = httpRaw ? (JSON.parse(httpRaw) as HttpEntryView[]) : undefined;
 
@@ -73,31 +82,46 @@ const summary = buildSummary({
   // which is why summary.json rather than JUnit is canonical.
   journeys: ALL_JOURNEYS.map((journey) => {
     const own = cases.filter((c) => c.name.includes(journey.id));
+    const run = runs.find((r) => r.id === journey.id);
     return {
       id: journey.id,
       title: journey.title,
       capability: journey.capability,
-      ok: own.length > 0 && own.every((c) => c.ok),
-      trace: own.map((c) => ({
-        label: c.name,
-        ok: c.ok,
-        ...(c.failure ? { error: c.failure } : {}),
-      })),
+      ok: run ? run.ok : own.length > 0 && own.every((c) => c.ok),
+      // Prefer the recorded steps; fall back to the JUnit case, which is
+      // all a report rendered outside a run can see.
+      trace:
+        run?.trace ??
+        own.map((c) => ({
+          label: c.name,
+          ok: c.ok,
+          durationMs: c.durationMs,
+          ...(c.failure ? { error: c.failure } : {}),
+        })),
     };
   }),
 });
 
-// Rendered after the summary because the overview counts journeys, and
-// only the registry knows how many there are -- JUnit case names do not.
+// Rendered after the summary because the page is a tree of journeys and
+// only the registry knows what they are -- JUnit case names do not.
+const { journeys: journeyViews, orphanHttp } = buildJourneyViews({
+  journeys: summary.journeys.map((j) => ({
+    ...j,
+    // The declared step list, so the page can show the steps a failure
+    // stopped the run from reaching.
+    stepLabels: ALL_JOURNEYS.find((registered) => registered.id === j.id)?.steps.map((s) => s.label),
+  })),
+  cases,
+  http: http ?? [],
+});
+
 await writeFile(
   `${REPORTS}/report.html`,
   renderHtml({
     ...report,
-    scenarios: {
-      total: summary.journeys.length,
-      passed: summary.journeys.filter((j) => j.ok).length,
-      failed: summary.journeys.filter((j) => !j.ok).length,
-    },
+    journeys: journeyViews,
+    orphanHttp,
+    startedAt: `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`,
   }),
 );
 

@@ -17,7 +17,7 @@ import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createRecorder } from '../../src/report/http_recorder.js';
 import { REQUIRED_RELATIONS } from '../../src/env/schema_gate.js';
-import { runJourney, type StepContext } from '../../src/journey/define_journey.js';
+import { runJourney, type StepContext, type StepOutcome } from '../../src/journey/define_journey.js';
 import { selectJourneys } from '../../src/journey/select.js';
 import { ALL_JOURNEYS } from '../../journeys/index.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
@@ -57,6 +57,16 @@ describe('journeys against a real stack', () => {
   // attributed to the step that made it, and the whole lot is written out
   // for the report once the stack comes down.
   const recorder = createRecorder();
+  // The step trace exists only in this process. Without writing it out, the
+  // report can only show the JUnit case name -- one line per journey -- and
+  // never the steps inside it.
+  const runs: {
+    id: string;
+    title: string;
+    capability: string;
+    ok: boolean;
+    trace: StepOutcome[];
+  }[] = [];
   let targetId: string;
 
   beforeAll(async () => {
@@ -151,6 +161,7 @@ describe('journeys against a real stack', () => {
     // it only ever exists inside this process.
     await mkdir('reports', { recursive: true });
     await writeFile('reports/http.json', JSON.stringify(recorder.entries, null, 2));
+    await writeFile('reports/journeys.json', JSON.stringify(runs, null, 2));
     await probe?.close();
     await provider?.down();
   });
@@ -226,6 +237,14 @@ describe('journeys against a real stack', () => {
           // list of requests across every journey in the run.
           { onStep: (label) => recorder.startStep(`${journey.id} — ${label}`) },
         );
+
+        runs.push({
+          id: journey.id,
+          title: journey.title,
+          capability: journey.capability,
+          ok: result.ok,
+          trace: result.trace,
+        });
 
         expect(result.ok, JSON.stringify(result.trace, null, 2)).toBe(true);
       });

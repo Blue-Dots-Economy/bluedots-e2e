@@ -98,7 +98,7 @@ export function defineJourney(spec: Journey): Journey {
   return spec;
 }
 
-export type StepOutcome = { label: string; ok: boolean; error?: string };
+export type StepOutcome = { label: string; ok: boolean; durationMs: number; error?: string };
 
 export type JourneyResult = {
   ok: boolean;
@@ -124,13 +124,15 @@ export async function runJourney(
     // Before the step runs: requests it makes belong to it, not to the
     // step that happened to run before.
     hooks.onStep?.(s.label);
+    const started = Date.now();
     try {
       await s.run(ctx);
-      trace.push({ label: s.label, ok: true });
+      trace.push({ label: s.label, ok: true, durationMs: Date.now() - started });
     } catch (err: unknown) {
       trace.push({
         label: s.label,
         ok: false,
+        durationMs: Date.now() - started,
         error: err instanceof Error ? err.message : String(err),
       });
       return { ok: false, failedStep: s.label, trace, state: ctx.state };

@@ -149,8 +149,8 @@ describe('runJourney', () => {
     const result = await runJourney(j, ctx());
 
     expect(result.trace).toEqual([
-      { label: 'Did a thing', ok: true },
-      { label: 'Failed a thing', ok: false, error: 'nope' },
+      { label: 'Did a thing', ok: true, durationMs: expect.any(Number) },
+      { label: 'Failed a thing', ok: false, durationMs: expect.any(Number), error: 'nope' },
     ]);
   });
 });
@@ -193,5 +193,30 @@ describe('runJourney step attribution', () => {
     // own requests to whatever ran previously.
     expect(order[0]).toBe('announced:Created a seeker profile');
     expect(order[1]).toBe('ran:one');
+  });
+});
+
+describe('runJourney timing', () => {
+  test('records how long each step took', async () => {
+    // The report shows a duration per step. Without one, a step that hung
+    // for two minutes looks the same as one that returned instantly.
+    const j = defineJourney({
+      id: 'J2',
+      title: 'A new profile becomes findable in search',
+      capability: 'search-and-discovery',
+      targets: ['purple_dot'],
+      steps: [
+        step({ label: 'Created a seeker profile', run: async () => {} }),
+        step({ label: 'Found the profile in search', run: async () => { throw new Error('nope'); } }),
+      ],
+    });
+
+    const result = await runJourney(j, ctx());
+
+    expect(result.trace).toHaveLength(2);
+    for (const outcome of result.trace) {
+      expect(typeof outcome.durationMs).toBe('number');
+      expect(outcome.durationMs).toBeGreaterThanOrEqual(0);
+    }
   });
 });

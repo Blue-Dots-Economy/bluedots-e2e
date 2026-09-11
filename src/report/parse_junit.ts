@@ -19,6 +19,7 @@ export function parseJUnit(xml: string): SuiteReport[] {
     ].map((m) => {
       const tag = m[1] ?? m[3] ?? '';
       const body = m[2] ?? '';
+      const skipped = /<skipped/.test(body);
       const failure = /<failure/.test(body)
         ? unescape(attr(/<failure[^>]*/.exec(body)?.[0] ?? '', 'message'))
         : undefined;
@@ -26,6 +27,7 @@ export function parseJUnit(xml: string): SuiteReport[] {
         name: unescape(attr(tag, 'name')),
         ok: !failure,
         durationMs: Number(attr(tag, 'time') || 0) * 1000,
+        ...(skipped ? { skipped } : {}),
         ...(failure ? { failure } : {}),
       };
     });

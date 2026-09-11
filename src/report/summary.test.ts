@@ -14,8 +14,8 @@ const RUN = {
       capability: 'search-and-discovery',
       ok: true,
       trace: [
-        { label: 'Created a seeker profile', ok: true },
-        { label: 'Found the profile in search', ok: true },
+        { label: 'Created a seeker profile', ok: true, durationMs: 0 },
+        { label: 'Found the profile in search', ok: true, durationMs: 0 },
       ],
     },
   ],
@@ -62,8 +62,8 @@ describe('renderTier2', () => {
         ...RUN.journeys[0]!,
         ok: false,
         trace: [
-          { label: 'Created a seeker profile', ok: true },
-          { label: 'Found the profile in search', ok: false, error: 'no match after 30s' },
+          { label: 'Created a seeker profile', ok: true, durationMs: 0 },
+          { label: 'Found the profile in search', ok: false, durationMs: 0, error: 'no match after 30s' },
         ],
       }],
     });

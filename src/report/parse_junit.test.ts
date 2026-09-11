@@ -46,3 +46,20 @@ describe('parseJUnit', () => {
     expect(parseJUnit('<testsuites/>')).toEqual([]);
   });
 });
+
+test('marks a skipped case as skipped rather than passed', () => {
+  // vitest emits <skipped/> for a journey the runner declined to run. Read
+  // as a pass, an uncovered journey inflates the passed count -- which is
+  // the one number a reader uses to decide whether to ship.
+  const xml = `<testsuites>
+<testsuite name="tests/stack/journeys.stack.test.ts" time="1">
+<testcase classname="x" name="J3 — Not run here" time="0"><skipped/></testcase>
+<testcase classname="x" name="J2 — Ran" time="1"></testcase>
+</testsuite>
+</testsuites>`;
+
+  const [suite] = parseJUnit(xml);
+
+  expect(suite?.cases[0]?.skipped).toBe(true);
+  expect(suite?.cases[1]?.skipped).toBeFalsy();
+});

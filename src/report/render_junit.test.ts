@@ -12,7 +12,7 @@ const summary = buildSummary({
     {
       id: 'J2', title: 'A new profile becomes findable in search',
       capability: 'search-and-discovery', ok: false,
-      trace: [{ label: 'Found the profile in search', ok: false, error: 'no match' }],
+      trace: [{ label: 'Found the profile in search', ok: false, durationMs: 0, error: 'no match' }],
     },
   ],
 });

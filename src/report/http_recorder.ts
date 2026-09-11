@@ -12,8 +12,14 @@ export type HttpEntry = {
 
 const MAX_BODY = 4000;
 
-/** Anything whose value is a credential, not just anything that looks odd. */
-const SECRET_HEADERS = ['x-api-key', 'authorization', 'cookie', 'set-cookie'];
+/**
+ * Anything whose value is a credential, not just anything that looks odd.
+ *
+ * Exported because the renderer redacts again on the way out: a report is a
+ * CI artifact, and one recorder that forgot to redact should not be able to
+ * put a live key on a page.
+ */
+export const SECRET_HEADERS = ['x-api-key', 'authorization', 'cookie', 'set-cookie'];
 
 function redact(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
