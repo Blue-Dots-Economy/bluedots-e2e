@@ -7,11 +7,11 @@
  * visible without downloading anything.
  */
 import { readFile, writeFile, appendFile } from 'node:fs/promises';
-import { renderHtml } from '../src/report/html.js';
-import { renderNewman } from '../src/report/newman.js';
+import { renderHtml } from '../src/report/render_html.js';
+import { renderNewman } from '../src/report/render_console.js';
 import { parseJUnit } from '../src/report/parse_junit.js';
 import { buildSummary, renderEvidenceSheet, renderTier2 } from '../src/report/summary.js';
-import { renderJUnit } from '../src/report/junit.js';
+import { renderJUnit } from '../src/report/render_junit.js';
 import { ALL_JOURNEYS } from '../journeys/index.js';
 
 const REPORTS = 'reports';

@@ -6,18 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { ComposeProvider } from '../../src/env/compose/compose_provider.js';
 import { assertBindSources } from '../../src/env/compose/overlay.js';
 import { dockerRun } from '../../src/env/compose/docker_runner.js';
-import { resolveTarget } from '../../src/targets/targets.js';
+import { resolveTarget } from '../../src/targets/target_discovery.js';
 import { imageTagsFromEnv, releaseTagFromEnv, targetFromEnv } from '../../src/targets/from_env.js';
-import { imageRef, resolveDigests, resolveTags } from '../../src/images/images.js';
+import { imageRef, resolveDigests, resolveTags } from '../../src/images/image_resolution.js';
 import { SERVICES } from '../../src/cli/args.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
-import { seedIdentities } from '../../src/seed/seed.js';
+import { seedIdentities } from '../../src/seed/identities.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
-import { runJourney, type StepContext } from '../../src/journey/journey.js';
+import { runJourney, type StepContext } from '../../src/journey/define_journey.js';
 import { seedFromEnv } from '../../src/targets/from_env.js';
-import { J2 } from '../../journeys/search/j2.js';
+import { profileBecomesFindable } from '../../journeys/search/profile_becomes_findable.js';
 
 const schemas =
   process.env.BLUEDOTS_SCHEMAS_PATH ??
@@ -149,7 +149,7 @@ describe('negative control: the sweep must not be able to fake a pass', () => {
   });
 
   test('J2 fails when only the sweep indexed the item', async () => {
-    const result = await runJourney(J2, ctx);
+    const result = await runJourney(profileBecomesFindable, ctx);
 
     expect(result.ok, `control PASSED, which means the suite cannot detect a dead ingest spine:\n${JSON.stringify(result.trace, null, 2)}`).toBe(false);
     expect(result.failedStep).toBe('Waited until the new profile was picked up for search');

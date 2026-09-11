@@ -7,6 +7,6 @@
  * points a step is allowed to reach -- actors, awaiters, projections --
  * with fixtures and generated clients underneath.
  */
-export { createProfile } from './actors/profile.js';
-export { waitUntilThisItemIndexed } from './awaiters/indexed.js';
-export { expectFoundInSearch } from './projections/search.js';
+export { createProfile } from './actors/create_profile.js';
+export { waitUntilThisItemIndexed } from './awaiters/wait_for_indexing.js';
+export { expectFoundInSearch } from './projections/search_results.js';

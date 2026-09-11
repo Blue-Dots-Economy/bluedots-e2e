@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { renderTargetList, resolveSelection } from './target_selection.js';
-import type { Target } from '../targets/targets.js';
+import type { Target } from '../targets/target_discovery.js';
 
 const TARGETS: Target[] = [
   { id: 'blue_dot/ka-dhwd', dot: 'blue_dot', instance: 'ka-dhwd' },

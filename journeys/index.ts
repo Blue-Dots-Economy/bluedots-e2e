@@ -1,5 +1,5 @@
 import type { RunnableJourney } from '../src/journey/select.js';
-import { J2 } from './search/j2.js';
+import { profileBecomesFindable } from './search/profile_becomes_findable.js';
 
 /**
  * Every journey the suite knows about.
@@ -9,4 +9,4 @@ import { J2 } from './search/j2.js';
  * single stack it already brought up, so the marginal cost of a journey is
  * its own assertions rather than a two-and-a-half-minute boot.
  */
-export const ALL_JOURNEYS: readonly RunnableJourney[] = [J2];
+export const ALL_JOURNEYS: readonly RunnableJourney[] = [profileBecomesFindable];

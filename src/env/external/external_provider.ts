@@ -1,7 +1,7 @@
 import type { Capability } from '../capabilities.js';
 import type { EnvironmentContext, EnvironmentProvider } from '../provider.js';
 import type { Endpoints } from '../compose/ports.js';
-import type { ResolvedTarget } from '../../targets/targets.js';
+import type { ResolvedTarget } from '../../targets/target_discovery.js';
 
 export type EnvironmentFile = {
   name: string;

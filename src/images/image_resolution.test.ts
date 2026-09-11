@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { imageRef, resolveTags, resolveDigests } from './images.js';
+import { imageRef, resolveTags, resolveDigests } from './image_resolution.js';
 
 describe('imageRef', () => {
   test('gives signals-dpg a per-component path', () => {

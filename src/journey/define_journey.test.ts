@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { defineJourney, step, custom, runJourney } from './journey.js';
+import { defineJourney, step, custom, runJourney } from './define_journey.js';
 
 const ctx = () => ({
   clients: {},

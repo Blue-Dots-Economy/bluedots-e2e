@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { listTargets, resolveTarget } from './targets.js';
+import { listTargets, resolveTarget } from './target_discovery.js';
 
 const SCHEMAS = fileURLToPath(new URL('../../tests/fixtures/schemas', import.meta.url));
 

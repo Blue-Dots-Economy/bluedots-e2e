@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { selectJourneys, type RunnableJourney } from './select.js';
-import { defineJourney, step } from './journey.js';
+import { defineJourney, step } from './define_journey.js';
 
 const j = (id: string, targets: string[], needs: ('http' | 'redis' | 'postgres')[] = ['http']) =>
   ({

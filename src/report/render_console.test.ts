@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { renderNewman } from './newman.js';
-import type { RunReport } from './html.js';
+import { renderNewman } from './render_console.js';
+import type { RunReport } from './render_html.js';
 
 const REPORT: RunReport = {
   releaseTag: '202609-s1-rc1',

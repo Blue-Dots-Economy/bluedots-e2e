@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import type { ResolvedTarget } from '../../targets/targets.js';
+import type { ResolvedTarget } from '../../targets/target_discovery.js';
 
 /**
  * The overlay layered on top of Signals-DPG/local-setup/docker-compose.yml.

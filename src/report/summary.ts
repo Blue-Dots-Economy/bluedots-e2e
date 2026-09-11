@@ -1,5 +1,5 @@
 import { CAPABILITIES, type Capability } from '../journey/guards.js';
-import type { StepOutcome } from '../journey/journey.js';
+import type { StepOutcome } from '../journey/define_journey.js';
 
 export type JourneyRun = {
   id: string;

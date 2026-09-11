@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderJUnit } from './junit.js';
+import { renderJUnit } from './render_junit.js';
 import { buildSummary } from './summary.js';
 
 const summary = buildSummary({

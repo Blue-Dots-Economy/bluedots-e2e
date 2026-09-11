@@ -1,4 +1,4 @@
-import type { Target } from '../targets/targets.js';
+import type { Target } from '../targets/target_discovery.js';
 
 export type Selection =
   | { kind: 'selected'; dot: string; instance: string | null }

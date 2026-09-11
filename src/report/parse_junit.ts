@@ -1,4 +1,4 @@
-import type { SuiteReport } from './html.js';
+import type { SuiteReport } from './render_html.js';
 
 // (?:^|\s) matters: a bare /name="/ also matches the tail of
 // classname="...", so every case would take the file name instead of the

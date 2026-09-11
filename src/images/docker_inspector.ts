@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Inspector } from './images.js';
+import type { Inspector } from './image_resolution.js';
 
 const run = promisify(execFile);
 

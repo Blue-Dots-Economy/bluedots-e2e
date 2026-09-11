@@ -1,11 +1,16 @@
-import { defineJourney } from '../../src/journey/journey.js';
+import { defineJourney } from '../../src/journey/define_journey.js';
 import {
   createProfile,
   expectFoundInSearch,
   waitUntilThisItemIndexed,
 } from '../../src/steps/index.js';
 
-export const J2 = {
+/**
+ * `J2` in the epic and the design spec. The id stays as the
+ * cross-reference to those documents; the export and the filename say what
+ * the journey actually does, because "J2" tells a reader nothing.
+ */
+export const profileBecomesFindable = {
   ...defineJourney({
     id: 'J2',
     title: 'A new profile becomes findable in search',

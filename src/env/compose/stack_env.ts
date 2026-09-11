@@ -1,4 +1,4 @@
-import type { ResolvedTarget } from '../../targets/targets.js';
+import type { ResolvedTarget } from '../../targets/target_discovery.js';
 
 /**
  * Fixed, non-secret values. The stack is booted fresh per run and is not

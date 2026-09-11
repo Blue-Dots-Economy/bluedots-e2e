@@ -1,4 +1,4 @@
-import { defineJourney, runJourney, step, type Journey, type StepContext } from '../journey/journey.js';
+import { defineJourney, runJourney, step, type Journey, type StepContext } from '../journey/define_journey.js';
 
 /**
  * Two scenarios whose outcomes are known in advance.

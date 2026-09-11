@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { seedIdentities } from './seed.js';
+import { seedIdentities } from './identities.js';
 
 const DEPS = (over: Partial<Parameters<typeof seedIdentities>[1]> = {}) => ({
   runTool: async () => `

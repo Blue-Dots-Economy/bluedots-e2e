@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CANARIES, runSelftest } from './selftest.js';
+import { CANARIES, runSelftest } from './canaries.js';
 
 const ctx = () => ({
   clients: {},

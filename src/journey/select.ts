@@ -1,5 +1,5 @@
 import type { Capability } from '../env/capabilities.js';
-import type { Journey } from './journey.js';
+import type { Journey } from './define_journey.js';
 
 /** A journey plus what the environment must offer for it to mean anything. */
 export type RunnableJourney = Journey & { requires: readonly Capability[] };

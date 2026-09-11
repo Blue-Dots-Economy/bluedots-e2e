@@ -1,4 +1,4 @@
-import { step, type StepContext } from '../../journey/journey.js';
+import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import { buildSearchBody } from '../request_bodies.js';
 

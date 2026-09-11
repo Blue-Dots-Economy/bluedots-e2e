@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderHtml, type RunReport } from './html.js';
+import { renderHtml, type RunReport } from './render_html.js';
 
 const REPORT: RunReport = {
   releaseTag: '202608-s2-rc1',

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { ComposeProvider } from './compose_provider.js';
-import type { ResolvedTarget } from '../../targets/targets.js';
+import type { ResolvedTarget } from '../../targets/target_discovery.js';
 
 const TARGET: ResolvedTarget = {
   id: 'purple_dot', dot: 'purple_dot', instance: null,

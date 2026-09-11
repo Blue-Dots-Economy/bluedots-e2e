@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import type { EnvironmentContext, EnvironmentProvider } from '../provider.js';
-import type { ResolvedTarget } from '../../targets/targets.js';
+import type { ResolvedTarget } from '../../targets/target_discovery.js';
 import { buildStackEnv, renderEnvFile } from './stack_env.js';
 import { renderOverlay } from './overlay.js';
-import { composeArgs, projectName } from './compose_cmd.js';
+import { composeArgs, projectName } from './compose_command.js';
 import { buildEndpoints, parsePublishedPort, type DiscoveredPorts } from './ports.js';
 import { assertSchemaReady } from '../schema_gate.js';
 import { enableDirectGrant, type KeycloakAdmin } from '../keycloak_setup.js';

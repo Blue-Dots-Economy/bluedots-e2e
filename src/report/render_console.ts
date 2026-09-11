@@ -1,4 +1,4 @@
-import type { CaseReport, RunReport } from './html.js';
+import type { CaseReport, RunReport } from './render_html.js';
 
 /**
  * Newman-style console output.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { composeArgs, projectName } from './compose_cmd.js';
+import { composeArgs, projectName } from './compose_command.js';
 
 describe('projectName', () => {
   test('is unique per target so two targets never share containers', () => {
