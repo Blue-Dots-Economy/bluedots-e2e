@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline/promises';
 import { stderr, stdin, stdout } from 'node:process';
 import { parseArgs } from './args.js';
-import { coveredTargets, renderTargetList, resolveSelection } from './target_selection.js';
+import { coveredTargets, matrixEntries, renderTargetList, resolveSelection } from './target_selection.js';
 import { ALL_JOURNEYS } from '../../journeys/index.js';
 import { listTargets, resolveTarget } from '../targets/target_discovery.js';
 import { schemasRoot } from '../config/paths.js';
@@ -35,6 +35,13 @@ async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const root = schemasRoot();
   const targets = await listTargets(root);
+
+  // The matrix the release workflow builds its jobs from: which targets to
+  // verify, and what to call each job.
+  if (args.matrix) {
+    stdout.write(`${JSON.stringify(matrixEntries(targets, ALL_JOURNEYS))}\n`);
+    return 0;
+  }
 
   if (args.list) {
     // --covered is what the workflow asks for: the targets a journey

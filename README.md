@@ -72,9 +72,10 @@ outside its own compose network.
 `.github/workflows/journey.yml`, on `workflow_dispatch`. Give it the
 release tag, optionally a per-service image tag for any service that was
 re-cut, and optionally a single target. The matrix comes from
-`journey --list --json --covered` — the targets the schemas define that a
-journey also declares — so adding a dot or a journey changes what CI runs
-without editing the workflow.
+`journey --matrix` — the targets the schemas define that a journey also
+declares — so adding a dot or a journey changes what CI runs without
+editing the workflow. Jobs are named for the dot (`verify blue_dot`), and
+keep the instance only when two covered targets share one.
 
 Each run uploads `reports/`:
 

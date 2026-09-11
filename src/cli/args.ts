@@ -17,6 +17,8 @@ export type Args = {
   json: boolean;
   /** With --list: only targets a journey declares. */
   covered: boolean;
+  /** Emit the CI matrix: {target, label} per covered target, as JSON. */
+  matrix: boolean;
   keepStack: boolean;
   branch: Record<string, string> | null;
   imagesFromTag: string | null;
@@ -30,7 +32,7 @@ const VALUE_FLAGS = new Set([
   '--branch',
   '--images-from-tag',
 ]);
-const BOOL_FLAGS = new Set(['--list', '--json', '--covered', '--keep-stack']);
+const BOOL_FLAGS = new Set(['--list', '--json', '--covered', '--matrix', '--keep-stack']);
 
 function parseBranch(raw: string): Record<string, string> {
   // A bare branch applies to every service; `service=branch` pairs move one
@@ -61,6 +63,7 @@ export function parseArgs(argv: readonly string[]): Args {
     list: false,
     json: false,
     covered: false,
+    matrix: false,
     keepStack: false,
     branch: null,
     imagesFromTag: null,
@@ -73,6 +76,7 @@ export function parseArgs(argv: readonly string[]): Args {
       if (flag === '--list') args.list = true;
       if (flag === '--json') args.json = true;
       if (flag === '--covered') args.covered = true;
+      if (flag === '--matrix') args.matrix = true;
       if (flag === '--keep-stack') args.keepStack = true;
       continue;
     }

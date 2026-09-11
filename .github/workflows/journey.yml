@@ -51,11 +51,12 @@ permissions:
 
 jobs:
   # The matrix comes from the harness, not from a list kept in step with it
-  # by hand. `journey --list --json --covered` intersects the targets the
-  # schemas define with the ones a journey declares, so adding a dot or a
-  # journey changes the matrix by itself. The dispatch input's `options:`
-  # above is the one copy that has to stay: GitHub renders that list when
-  # the form opens, long before any job could compute it.
+  # by hand. `journey --matrix` intersects the targets the schemas define
+  # with the ones a journey declares, so adding a dot or a journey changes
+  # the matrix by itself. Each entry carries the precise target and the
+  # name to show for it. The dispatch input's `options:` above is the one
+  # copy that has to stay: GitHub renders that list when the form opens,
+  # long before any job could compute it.
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -80,15 +81,15 @@ jobs:
           CHOSEN: ${{ inputs.target }}
         run: |
           set -euo pipefail
-          discovered=$(pnpm -s journey --list --json --covered)
+          discovered=$(pnpm -s journey --matrix)
           if [ -n "$CHOSEN" ]; then
             # An unknown target fails here, in seconds, rather than in a
             # matrix job that boots a stack before resolving anything.
-            if ! printf '%s' "$discovered" | jq -e --arg t "$CHOSEN" 'index($t)' >/dev/null; then
-              echo "::error::Unknown target '$CHOSEN'. This release verifies $discovered."
+            targets=$(printf '%s' "$discovered" | jq -c --arg t "$CHOSEN" '[.[] | select(.target == $t)]')
+            if [ "$targets" = "[]" ]; then
+              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)')."
               exit 1
             fi
-            targets=$(jq -cn --arg t "$CHOSEN" '[$t]')
           else
             targets=$discovered
           fi
@@ -96,7 +97,10 @@ jobs:
           echo "verifying: $targets"
 
   verify:
-    name: verify ${{ matrix.target }}
+    # The dot, not the dot/instance: an instance is width in a job list
+    # without being what a reader scans for. matrix.target keeps the
+    # precise id for everything that resolves, seeds or names an artifact.
+    name: verify ${{ matrix.label }}
     needs: prepare
     runs-on: ubuntu-latest
     # Three stack boots run sequentially (fileParallelism is off), each
@@ -109,7 +113,7 @@ jobs:
       # one target's failure still leaves the others' evidence.
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+        include: ${{ fromJSON(needs.prepare.outputs.targets) }}
     env:
       # Resolved once. On dispatch, github.ref_name is the ref the run was
       # started from -- usually main -- NOT inputs.tag, so using it for the

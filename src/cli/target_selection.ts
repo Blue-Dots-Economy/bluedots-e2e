@@ -34,6 +34,32 @@ export function coveredTargets(
 }
 
 /**
+ * The CI matrix: the exact target to verify, and what to call the job.
+ *
+ * A job list reading "verify blue_dot/ka-dhwd" spends its width on the
+ * instance, which is the part a reader scanning for a red dot does not
+ * need. The label drops it -- unless two covered targets share a dot, when
+ * two jobs both reading "verify blue_dot" would be worse than the noise:
+ * a red one could not be told from a green one.
+ *
+ * `target` is always the precise id. Everything that resolves a target,
+ * names an artifact or seeds a fixture uses that, never the label.
+ */
+export function matrixEntries(
+  targets: readonly Target[],
+  journeys: readonly { targets: readonly string[] }[],
+): { target: string; label: string }[] {
+  const covered = coveredTargets(targets, journeys);
+  const dots = covered.map((id) => id.split('/')[0] ?? id);
+
+  return covered.map((target, i) => {
+    const dot = dots[i] ?? target;
+    const shared = dots.filter((d) => d === dot).length > 1;
+    return { target, label: shared ? target : dot };
+  });
+}
+
+/**
  * Decide which target a run tests.
  *
  * In CI a missing or ambiguous target is an ERROR, never a prompt and never a

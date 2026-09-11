@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { coveredTargets, renderTargetList, resolveSelection } from './target_selection.js';
+import { coveredTargets, matrixEntries, renderTargetList, resolveSelection } from './target_selection.js';
 import type { Target } from '../targets/target_discovery.js';
 
 const TARGETS: Target[] = [
@@ -91,5 +91,41 @@ describe('coveredTargets', () => {
     expect(
       coveredTargets([{ id: 'purple_dot' }] as never, [{ targets: ['purple_dott'] }] as never),
     ).toEqual([]);
+  });
+});
+
+describe('matrixEntries', () => {
+  test('labels a job by its dot, since the instance is noise in a job list', () => {
+    const entries = matrixEntries(
+      [{ id: 'purple_dot' }, { id: 'blue_dot/ka-dhwd' }] as never,
+      [{ targets: ['purple_dot', 'blue_dot/ka-dhwd'] }] as never,
+    );
+
+    expect(entries).toEqual([
+      { target: 'purple_dot', label: 'purple_dot' },
+      { target: 'blue_dot/ka-dhwd', label: 'blue_dot' },
+    ]);
+  });
+
+  test('keeps the instance when two covered targets share a dot', () => {
+    // Two jobs both reading "verify blue_dot" would be worse than the
+    // noise: a red one could not be told from a green one.
+    const entries = matrixEntries(
+      [{ id: 'blue_dot/ka-dhwd' }, { id: 'blue_dot/up-gzb' }] as never,
+      [{ targets: ['blue_dot/ka-dhwd', 'blue_dot/up-gzb'] }] as never,
+    );
+
+    expect(entries.map((e) => e.label)).toEqual(['blue_dot/ka-dhwd', 'blue_dot/up-gzb']);
+  });
+
+  test('carries the exact target through, whatever the label says', () => {
+    // The label is for reading. Everything that resolves a target, names an
+    // artifact or seeds a fixture must use the precise id.
+    const [entry] = matrixEntries(
+      [{ id: 'blue_dot/ka-dhwd' }] as never,
+      [{ targets: ['blue_dot/ka-dhwd'] }] as never,
+    );
+
+    expect(entry?.target).toBe('blue_dot/ka-dhwd');
   });
 });
