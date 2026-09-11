@@ -196,6 +196,7 @@ jobs:
             | tee reports/capacity-before.txt
 
       - name: run the journey suite
+        id: suite
         env:
           SIGNALS_DPG_PATH: ${{ github.workspace }}/.checkouts/Signals-DPG
           AGGREGATOR_DPG_PATH: ${{ github.workspace }}/.checkouts/aggregator-dpg
@@ -214,10 +215,13 @@ jobs:
           EMBEDDER: ${{ vars.EMBEDDER || 'tei' }}
         run: pnpm test:stack
 
-      # Always: a green run deserves a readable record too, and a red one
-      # needs it most.
+      # always(), but only once there IS a run to report on. A failure
+      # before the suite -- a tag not cut fleet-wide, say -- skips the
+      # checkout and the install, so these would fail for want of
+      # dependencies and an empty reports directory, turning one clear
+      # error into three red steps and burying the one that mattered.
       - name: render the report
-        if: always()
+        if: always() && steps.suite.conclusion != 'skipped'
         env:
           JOURNEY_TARGET: ${{ matrix.target }}
           JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
@@ -226,7 +230,7 @@ jobs:
       # A capacity failure and a regression look alike in a bare failure, so
       # capture enough to tell them apart.
       - name: triage bundle
-        if: failure()
+        if: failure() && steps.suite.conclusion != 'skipped'
         run: |
           { df -h; echo; free -m; } > reports/capacity-after.txt 2>&1 || true
           docker ps -a > reports/docker-ps.txt 2>&1 || true
@@ -239,7 +243,7 @@ jobs:
       # indistinguishable from a run that produced no evidence, which is the
       # failure this step exists to prevent.
       - name: upload reports
-        if: always()
+        if: always() && steps.suite.conclusion != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: journey-${{ env.TARGET_SLUG }}
