@@ -21,7 +21,6 @@ const okResponse = () =>
           item_type: 'profile_1.0',
           item_id: 'itm_1',
           lifecycle_status: 'live',
-          item_state: { headline: 'journey-abc123', beneficiary_name: '***' },
         },
       ],
     }),
@@ -57,19 +56,4 @@ describe('createProfile', () => {
     expect(calls).toEqual(['http://signals/api/v1/admin/participant']);
   });
 
-  test('keeps the item_state the API stored, not only the one it sent', async () => {
-    // signals-dpg rewrites some fields on the way in -- a masked contact
-    // field is not the value the journey wrote. A later step that filters
-    // on one of those can never match, so the search step needs to know
-    // which fields survived the round trip.
-    const http = (async () => okResponse()) as unknown as typeof fetch;
-    const c = ctx(http);
-
-    await createProfile({ as: 'seeker' }).run(c);
-
-    expect(c.state.storedItemState).toEqual({
-      headline: 'journey-abc123',
-      beneficiary_name: '***',
-    });
-  });
 });

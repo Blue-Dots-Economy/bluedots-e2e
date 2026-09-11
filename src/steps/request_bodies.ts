@@ -92,22 +92,8 @@ type UpsertResponse = {
     item_type: string;
     item_id: string;
     lifecycle_status?: string;
-    /** What the API STORED, which is not always what was sent. */
-    item_state?: Record<string, unknown>;
   }[];
 };
-
-/**
- * The item_state as stored, echoed by the upsert.
- *
- * signals-dpg rewrites some fields on the way in -- a masked contact field
- * is not the value the journey wrote -- so a later step filtering on one of
- * those can never match. Reading it back is how the journey knows which
- * fields survived without being told per network.
- */
-export function extractStoredItemState(res: UpsertResponse): Record<string, unknown> {
-  return res.items[0]?.item_state ?? {};
-}
 
 /**
  * Pull the key the awaiter correlates on, refusing anything unusable.

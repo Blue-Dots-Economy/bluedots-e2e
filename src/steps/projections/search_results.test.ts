@@ -4,12 +4,27 @@ import type { StepContext } from '../../journey/define_journey.js';
 
 const ITEM_ID = '5002cde5-8a9d-464a-93bd-f625c2891097';
 
+/** As signals-dpg stores it: contact fields masked, the rest verbatim. */
+const STORED = {
+  beneficiary_name: 'j***',
+  address: '***',
+  mobile_number: '122***',
+  looking_for_details: 'journey fixture abc123 looking_for_details',
+  gender: 'Other',
+};
+
+const WRITTEN = {
+  beneficiary_name: 'journey-beneficiary_name-abc123',
+  address: 'journey-address-abc123',
+  looking_for_details: 'journey fixture abc123 looking_for_details',
+  gender: 'Other',
+};
+
 const ctx = (http: typeof fetch): StepContext => ({
   clients: {},
   state: {
     itemKey: { network: 'purple_dot', domain: 'seeker', type: 'profile_1.0', id: ITEM_ID },
-    itemState: { beneficiary_name: 'journey-abc123' },
-    storedItemState: { beneficiary_name: 'journey-abc123' },
+    itemState: { ...WRITTEN },
   },
   endpoints: { signalsApi: '', searchApi: 'http://search', keycloak: '', postgresUrl: '', redisUrl: '' },
   seeded: {},
@@ -17,7 +32,7 @@ const ctx = (http: typeof fetch): StepContext => ({
   auth: { apiKey: 'k', actingOrgId: 'org', participantToken: 't' },
 });
 
-/** What signals-search returns: the request context, echoed, plus results. */
+/** signals-search echoes the request context alongside the results. */
 const response = (items: { item_id: string; item_state?: Record<string, unknown> }[]) =>
   new Response(
     JSON.stringify({
@@ -27,105 +42,86 @@ const response = (items: { item_id: string; item_state?: Record<string, unknown>
     { status: 200 },
   );
 
+/** Answers an unfiltered query with `row`, and a filtered one by matching it. */
+const stubSearch = (row: { item_id: string; item_state: Record<string, unknown> } | null) => {
+  const bodies: string[] = [];
+  const http = (async (_url: string, init?: RequestInit) => {
+    bodies.push(String(init?.body));
+    const filters = JSON.parse(String(init?.body)).message.intent.filters as {
+      target: string;
+      value: unknown;
+    }[];
+    if (!row) return response([]);
+    if (filters.length === 0) return response([row]);
+    const key = filters[0]!.target.replace('item_state.', '');
+    return response(row.item_state[key] === filters[0]!.value ? [row] : []);
+  }) as unknown as typeof fetch;
+  return { http, bodies };
+};
+
 describe('expectFoundInSearch', () => {
+  test('filters on a field search stores verbatim, not one it masks', async () => {
+    // purple_dot masks its contact fields: search holds beneficiary_name as
+    // "j***" and address as "***", so a filter on either matches nothing
+    // however well ingestion worked. The create response is no guide -- it
+    // echoes the unmasked values.
+    const { http, bodies } = stubSearch({ item_id: ITEM_ID, item_state: STORED });
+
+    await expectFoundInSearch().run(ctx(http));
+
+    const filtered = bodies.map((b) => JSON.parse(b).message.intent.filters).filter((f) => f.length);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0][0].target).toBe('item_state.looking_for_details');
+  });
+
   test('fails when search returned nothing, however the id appears elsewhere', async () => {
     // signals-search echoes the request context, and the request carries
     // messageId "journey-<item id>". A whole-body substring check therefore
-    // matches its own echo and passes on zero results -- which is exactly
-    // what run 34581115232 did.
-    const http = (async () => response([])) as unknown as typeof fetch;
-
-    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/STEP_FAILED/);
-  });
-
-  test('passes when the item is among the returned items', async () => {
-    const http = (async () => response([{ item_id: ITEM_ID }])) as unknown as typeof fetch;
-
-    await expect(expectFoundInSearch().run(ctx(http))).resolves.toBeUndefined();
-  });
-
-  test('fails when search returned other items but not this one', async () => {
-    const http = (async () => response([{ item_id: 'someone-else' }])) as unknown as typeof fetch;
-
-    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/STEP_FAILED/);
-  });
-
-  test('says whether the filter or the indexing is at fault', async () => {
-    // Zero results has two very different causes: the item is not visible
-    // to search at all, or it is visible and the filter did not match. The
-    // unfiltered re-query separates them, so a red run names the subsystem.
-    const bodies: string[] = [];
-    const http = (async (_url: string, init?: RequestInit) => {
-      bodies.push(String(init?.body));
-      // Unfiltered: the item IS there. So the filter is what failed.
-      return response(bodies.length === 1 ? [] : [{ item_id: ITEM_ID }]);
-    }) as unknown as typeof fetch;
-
-    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(
-      /filter matched nothing/i,
-    );
-    expect(JSON.parse(bodies[1]!).message.intent.filters ?? []).toHaveLength(0);
-  });
-
-  test('names indexing when the item is absent even unfiltered', async () => {
-    const http = (async () => response([])) as unknown as typeof fetch;
+    // matched its own echo and passed on zero results -- which is what run
+    // 34581115232 did.
+    const { http } = stubSearch(null);
 
     await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/not visible to search/i);
   });
 
-  test('issues its search through ctx.http, so the report can show the request', async () => {
+  test('fails when the filter matches nothing though the item is there', async () => {
+    // The chosen field is stored verbatim, so this can only happen if the
+    // filter itself is broken -- a different fault from a missing item.
+    const http = (async (_url: string, init?: RequestInit) => {
+      const filters = JSON.parse(String(init?.body)).message.intent.filters as unknown[];
+      return response(filters.length === 0 ? [{ item_id: ITEM_ID, item_state: STORED }] : []);
+    }) as unknown as typeof fetch;
+
+    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/filter matched nothing/i);
+  });
+
+  test('names the masked values when no field survived', async () => {
+    const { http } = stubSearch({
+      item_id: ITEM_ID,
+      item_state: { beneficiary_name: 'j***', address: '***' },
+    });
+    const c = ctx(http);
+    c.state.itemState = {
+      beneficiary_name: 'journey-beneficiary_name-abc123',
+      address: 'journey-address-abc123',
+    };
+
+    await expect(expectFoundInSearch().run(c)).rejects.toThrow(/no identifying field/i);
+    await expect(expectFoundInSearch().run(c)).rejects.toThrow(/j\*\*\*/);
+  });
+
+  test('issues its searches through ctx.http, so the report can show them', async () => {
     const calls: string[] = [];
-    const http = (async (url: string) => {
+    const http = (async (url: string, init?: RequestInit) => {
       calls.push(String(url));
-      return response([{ item_id: ITEM_ID }]);
+      const filters = JSON.parse(String(init?.body)).message.intent.filters as unknown[];
+      return response(
+        filters.length === 0 ? [{ item_id: ITEM_ID, item_state: STORED }] : [{ item_id: ITEM_ID, item_state: STORED }],
+      );
     }) as unknown as typeof fetch;
 
     await expectFoundInSearch().run(ctx(http));
 
-    expect(calls).toEqual(['http://search/v1/search']);
-  });
-
-  test('quotes the stored value, so nobody has to guess how it differs', async () => {
-    // The unfiltered re-query already carries the row. Printing what is
-    // actually stored turns "the stored value differs" into the answer --
-    // a masked value reads very differently from a trimmed one.
-    let call = 0;
-    const http = (async () => {
-      call += 1;
-      return call === 1
-        ? response([])
-        : response([{ item_id: ITEM_ID, item_state: { beneficiary_name: '***' } }]);
-    }) as unknown as typeof fetch;
-
-    await expect(expectFoundInSearch().run(ctx(http))).rejects.toThrow(/stored "\*\*\*"/);
-  });
-
-  test('filters on a field the API stored unchanged, not one it rewrote', async () => {
-    // beneficiary_name is purple_dot's contact_fields.name and comes back
-    // masked, so a filter on it can never match. Comparing what was written
-    // against what came back picks a field that survived, without the
-    // journey needing per-network knowledge of which fields those are.
-    const bodies: string[] = [];
-    const http = (async (_url: string, init?: RequestInit) => {
-      bodies.push(String(init?.body));
-      return response([{ item_id: ITEM_ID }]);
-    }) as unknown as typeof fetch;
-
-    const c = ctx(http);
-    c.state.itemState = { beneficiary_name: 'journey-name', address: 'journey-address' };
-    c.state.storedItemState = { beneficiary_name: '***', address: 'journey-address' };
-
-    await expectFoundInSearch().run(c);
-
-    expect(JSON.parse(bodies[0]!).message.intent.filters[0].target).toBe('item_state.address');
-  });
-
-  test('says so rather than filtering blind when nothing survived', async () => {
-    const http = (async () => response([{ item_id: ITEM_ID }])) as unknown as typeof fetch;
-    const c = ctx(http);
-    c.state.itemState = { beneficiary_name: 'journey-name' };
-    c.state.storedItemState = { beneficiary_name: '***' };
-
-    await expect(expectFoundInSearch().run(c)).rejects.toThrow(/no identifying field/i);
+    expect(new Set(calls)).toEqual(new Set(['http://search/v1/search']));
   });
 });

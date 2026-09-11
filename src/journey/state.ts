@@ -11,8 +11,6 @@ import type { Baseline, ItemKey } from '../awaiters/ingest.js';
 export type JourneyState = {
   itemKey?: ItemKey;
   itemState?: Record<string, unknown>;
-  /** The same state as the API stored it; see extractStoredItemState. */
-  storedItemState?: Record<string, unknown>;
   baseline?: Baseline;
   seed?: string;
 };
@@ -21,7 +19,6 @@ export type JourneyState = {
 const PROVIDED_BY: Record<keyof JourneyState, string> = {
   itemKey: 'createProfile',
   itemState: 'createProfile',
-  storedItemState: 'createProfile',
   baseline: 'createProfile',
   seed: 'the run',
 };

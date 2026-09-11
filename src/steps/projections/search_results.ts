@@ -1,7 +1,6 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import { buildSearchBody } from '../request_bodies.js';
-import type { ItemKey } from '../../awaiters/ingest.js';
 
 type SearchItem = { item_id: string; item_state?: Record<string, unknown> };
 
@@ -16,27 +15,7 @@ export const expectFoundInSearch = () =>
     run: async (ctx: StepContext) => {
       const auth = requireContext(ctx.auth, 'authentication');
       const key = requireState(ctx.state, 'itemKey');
-
-      // Isolate this run's item by a generated, seed-distinct text field --
-      // and only one the API stored unchanged. purple_dot's
-      // beneficiary_name is its contact_fields.name and comes back masked,
-      // so a filter on it can never match. Comparing written against stored
-      // finds a surviving field without per-network knowledge of which
-      // fields get rewritten.
-      const itemState = requireState(ctx.state, 'itemState');
-      const stored = requireState(ctx.state, 'storedItemState');
-      const candidates = Object.keys(itemState).filter(
-        (k) => typeof itemState[k] === 'string' && String(itemState[k]).startsWith('journey'),
-      );
-      const field = candidates.find((k) => stored[k] === itemState[k]);
-      if (!field) {
-        throw new Error(
-          `STEP_FAILED: no identifying field survived the write. Tried ` +
-            `${candidates.join(', ') || '(none)'}; the API stored ` +
-            `${JSON.stringify(Object.fromEntries(candidates.map((k) => [k, stored[k]])))}. ` +
-            `Search can only isolate this run's item by a field it stores verbatim.`,
-        );
-      }
+      const written = requireState(ctx.state, 'itemState');
 
       const search = async (filter: { field: string; value: unknown } | null) => {
         const res = await ctx.http(`${ctx.endpoints.searchApi}/v1/search`, {
@@ -55,51 +34,71 @@ export const expectFoundInSearch = () =>
         return ((await res.json()) as SearchResponse).message?.items ?? [];
       };
 
-      const found = (items: SearchItem[]) => items.some((i) => i.item_id === key.id);
+      const where = `${key.network}/${key.domain}/${key.type}`;
 
-      const filtered = await search({ field, value: itemState[field] });
-      if (found(filtered)) return;
+      // What does search actually hold for this item? Asked first, because
+      // the filter has to match the INDEXED value and nothing else knows
+      // what that is. signals-dpg masks its domain's contact fields --
+      // purple_dot stores beneficiary_name as "j***" -- and the upsert
+      // response is no guide, since it echoes the unmasked values back to
+      // the caller that wrote them.
+      const visible = await search(null);
+      const row = visible.find((i) => i.item_id === key.id);
+      if (!row) {
+        throw new Error(
+          `STEP_FAILED: ${key.id} is not visible to search. An unfiltered query of ${where} ` +
+            `returned ${visible.length} item(s), none of them this one, so the item reached ` +
+            `item_search but search cannot see it -- check lifecycle_status and the items join.`,
+        );
+      }
 
-      // Zero results has two causes with different fixes. Re-querying the
-      // same context unfiltered says which one, so the failure names a
-      // subsystem instead of leaving the reader to guess.
-      const unfiltered = await search(null);
-      throw new Error(describeMiss(key, field, itemState[field], filtered, unfiltered));
+      const field = identifyingField(written, row.item_state ?? {});
+      if (!field) throw new Error(noSurvivingField(written, row.item_state ?? {}));
+
+      const filtered = await search({ field, value: written[field] });
+      if (filtered.some((i) => i.item_id === key.id)) return;
+
+      throw new Error(
+        `STEP_FAILED: the filter matched nothing, though ${key.id} is in ${where} and ` +
+          `search holds item_state.${field} = ${JSON.stringify(row.item_state?.[field])}, ` +
+          `exactly what was filtered on. The filter path is broken, not the indexing.`,
+      );
     },
   });
 
-function describeMiss(
-  key: ItemKey,
-  field: string,
-  value: unknown,
-  filtered: SearchItem[],
-  unfiltered: SearchItem[],
+/**
+ * A field that isolates THIS run's item in the index.
+ *
+ * Seed-distinct so a previous run's item cannot satisfy it, and stored
+ * verbatim so the filter can match at all. Derived per run rather than
+ * configured per network: which fields a domain masks is signals-dpg's
+ * business, and a target that masks something else needs no change here.
+ */
+function identifyingField(
+  written: Record<string, unknown>,
+  stored: Record<string, unknown>,
+): string | undefined {
+  return Object.keys(written).find(
+    (k) =>
+      typeof written[k] === 'string' &&
+      String(written[k]).startsWith('journey') &&
+      stored[k] === written[k],
+  );
+}
+
+function noSurvivingField(
+  written: Record<string, unknown>,
+  stored: Record<string, unknown>,
 ): string {
-  const where = `${key.network}/${key.domain}/${key.type}`;
-  const ours = unfiltered.find((i) => i.item_id === key.id);
-  if (ours) {
-    // The row is right here, so the message quotes what is stored rather
-    // than saying it differs and leaving the reader to go and look. A
-    // masked value reads very differently from a trimmed one.
-    const stored = ours.item_state?.[field];
-    // The whole row, not just the one field: the create response can echo
-    // a value the searchable mirror does not hold, so this is the only
-    // place that says what search actually has to match against.
-    const strings = Object.fromEntries(
-      Object.entries(ours.item_state ?? {}).filter(([, v]) => typeof v === 'string'),
-    );
-    return (
-      `STEP_FAILED: the filter matched nothing, though ${key.id} is in ${where}. ` +
-      `eq item_state.${field} = ${JSON.stringify(value)} returned ${filtered.length} item(s); ` +
-      `unfiltered returned ${unfiltered.length}, and that row has ${field} ` +
-      `stored ${JSON.stringify(stored ?? null)}. Filtering on a field the API rewrites ` +
-      `(a masked contact field, say) can never match what the journey wrote. ` +
-      `The row's string fields as search holds them: ${JSON.stringify(strings)}`
-    );
-  }
+  const tried = Object.keys(written).filter(
+    (k) => typeof written[k] === 'string' && String(written[k]).startsWith('journey'),
+  );
+  const asStored = Object.fromEntries(tried.map((k) => [k, stored[k] ?? null]));
   return (
-    `STEP_FAILED: ${key.id} is not visible to search. An unfiltered query of ${where} ` +
-    `returned ${unfiltered.length} item(s), none of them this one, so the item reached ` +
-    `item_search but search cannot see it -- check lifecycle_status and the items join.`
+    `STEP_FAILED: no identifying field survived indexing. Tried ` +
+    `${tried.join(', ') || '(none)'}; search holds ${JSON.stringify(asStored)}. ` +
+    `Every seed-distinct field in this fixture is rewritten on the way in (masked ` +
+    `contact fields, say), so nothing can isolate this run's item -- give the ` +
+    `fixture a seed-distinct value in a field the domain stores verbatim.`
   );
 }
