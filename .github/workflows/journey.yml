@@ -88,31 +88,41 @@ jobs:
           esac
           echo "TARGET_SLUG=$(printf '%s' '${{ matrix.target }}' | tr '/' '-')" >> "$GITHUB_ENV"
 
-      # A tag is not always cut fleet-wide. Today 202608-s1-rc4 exists only
-      # on signals-dpg, and 202608-s1-rc2 and -rc3 only on signals-dpg and
-      # aggregator-dpg. Without this, a dispatch naming one of those dies at
-      # actions/checkout with an opaque git error and the reader has to work
-      # out which repo was missing it.
+      # Resolve each provider's source ref, and fail naming the repo rather
+      # than dying at actions/checkout with an opaque git error.
       #
-      # Each repo is checked at the tag IT will be used at, which is not
-      # always RESOLVED_TAG: a per-service override moves that service's
-      # image, and its checkout has to move with it or the compose base and
-      # realm come from a different release than the image under test.
-      - name: preflight the tags on every pinned repo
+      # Two things this has to get right. A tag is not always cut
+      # fleet-wide: 202608-s1-rc4 exists only on signals-dpg, and
+      # 202608-s1-rc2 and -rc3 only on signals-dpg and aggregator-dpg.
+      # And an IMAGE tag is not always a GIT tag -- CI publishes three
+      # shapes, and each maps to a different kind of ref:
+      #
+      #   202609-s1-rc1   a tag
+      #   develop         a branch head
+      #   sha-7958281     the COMMIT 7958281, not a tag of that name
+      #
+      # So `sha-` is stripped and each ref is looked up as tag, then
+      # branch, then commit.
+      - name: resolve the source ref for every pinned repo
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           missing=0
-          check() {
-            if ! gh api "repos/Blue-Dots-Economy/$1/git/ref/tags/$2" >/dev/null 2>&1; then
-              echo "::error::$2 was not cut on $1. A journey run checks out each provider at the tag its image uses; cut the tag there, or pick one that exists on every repo."
-              missing=1
-            else
-              echo "ok  $1 @ $2"
-            fi
+          resolve() {
+            repo=$1
+            ref=${2#sha-}   # sha-7958281 is the image tag for commit 7958281
+            for kind in "git/ref/tags/$ref" "git/ref/heads/$ref" "commits/$ref"; do
+              if gh api "repos/Blue-Dots-Economy/$repo/$kind" >/dev/null 2>&1; then
+                echo "ok  $repo @ $ref"
+                echo "${3}=$ref" >> "$GITHUB_ENV"
+                return 0
+              fi
+            done
+            echo "::error::$2 does not resolve on $repo as a tag, a branch or a commit. A journey run checks out each provider at the revision its image was built from; check the tag exists there, or pick one that does."
+            missing=1
           }
-          check signals-dpg "$SIGNALS_DPG_REF"
-          check aggregator-dpg "$AGGREGATOR_DPG_REF"
+          resolve signals-dpg    "$SIGNALS_DPG_REF"    SIGNALS_DPG_CHECKOUT
+          resolve aggregator-dpg "$AGGREGATOR_DPG_REF" AGGREGATOR_DPG_CHECKOUT
           exit $missing
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -140,12 +150,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/signals-dpg
-          ref: ${{ env.SIGNALS_DPG_REF }}
+          ref: ${{ env.SIGNALS_DPG_CHECKOUT }}
           path: .checkouts/Signals-DPG
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/aggregator-dpg
-          ref: ${{ env.AGGREGATOR_DPG_REF }}
+          ref: ${{ env.AGGREGATOR_DPG_CHECKOUT }}
           path: .checkouts/aggregator-dpg
       # bluedots-schemas carries no tags, so main is unavoidable. The
       # resolved SHA is recorded below so a re-run stays attributable.
@@ -170,8 +180,8 @@ jobs:
             echo "signals_dpg_sha=$(git -C .checkouts/Signals-DPG rev-parse HEAD)"
             echo "aggregator_dpg_sha=$(git -C .checkouts/aggregator-dpg rev-parse HEAD)"
             echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
-            echo "signals_dpg_ref=$SIGNALS_DPG_REF"
-            echo "aggregator_dpg_ref=$AGGREGATOR_DPG_REF"
+            echo "signals_dpg_ref=$SIGNALS_DPG_CHECKOUT"
+            echo "aggregator_dpg_ref=$AGGREGATOR_DPG_CHECKOUT"
             echo "signals_dpg_tag=${{ inputs.signals_dpg_tag || env.RESOLVED_TAG }}"
             echo "aggregator_dpg_tag=${{ inputs.aggregator_dpg_tag || env.RESOLVED_TAG }}"
             echo "signals_search_tag=${{ inputs.signals_search_tag || env.RESOLVED_TAG }}"
