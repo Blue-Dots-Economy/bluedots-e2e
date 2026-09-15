@@ -23,6 +23,7 @@ import { BOOTED_SERVICES, SERVICES } from '../../src/services/registry.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
+import { grantSearchCallerKey } from '../../src/seed/search_api_key.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
@@ -174,6 +175,16 @@ async function seedBootedStack(
         ),
     },
   );
+
+  // signals-api's own key for calling signals-search. Its value is fixed
+  // at boot in stack_env; the row can only exist now, and nothing uses it
+  // until the first discover request.
+  await grantSearchCallerKey({
+    exec: (svc, cmd) => provider.exec(svc, cmd),
+    // Any valid user: signals-search only reads the key's user_id to know
+    // who is calling, and this key is the API's own service identity.
+    userId: seeded.participant.userId,
+  });
 
   const probe = createIngestProbe({
     redisUrl: env.endpoints.redisUrl,

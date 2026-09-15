@@ -1,4 +1,5 @@
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
+import { SEARCH_CALLER_API_KEY } from '../../seed/search_api_key.js';
 
 /**
  * Fixed, non-secret values. The stack is booted fresh per run and is not
@@ -100,6 +101,12 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // Without all three, getNotificationClient() returns undefined and the
     // API silently sends nothing -- which is what made the notification
     // pipeline unassertable rather than merely untested.
+    // Without these the API logs "signals-search is not configured" at
+    // level 40 and the discover BFF falls back to a native query, so a
+    // browse-feed journey passes without ever crossing into signals-search.
+    SIGNALS_SEARCH_URL: 'http://signals-search-api:3100',
+    SIGNALS_SEARCH_API_KEY: SEARCH_CALLER_API_KEY,
+
     NOTIFICATION_SERVICE_ENDPOINT: `http://notification-service:${NOTIFICATION_PORT}`,
     NOTIFICATION_SERVICE_KEY_ID: NOTIFICATION_KEY_ID,
     NOTIFICATION_SERVICE_SECRET: NOTIFICATION_SECRET,

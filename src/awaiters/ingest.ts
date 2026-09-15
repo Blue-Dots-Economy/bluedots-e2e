@@ -21,6 +21,15 @@ export type IngestProbe = {
   pendingCount: () => Promise<number | null>;
   /** item_search.indexed_at for this key, or null when absent. */
   indexedAt: (key: ItemKey) => Promise<string | null>;
+  /**
+   * items.lifecycle_status for this key, or null when there is no row.
+   *
+   * Read from the write model rather than through /api/v1/item/fetch,
+   * which is live-only: it answers 200 with zero items for a draft or a
+   * retired profile, so the two states this most needs to tell apart are
+   * exactly the two it cannot see.
+   */
+  lifecycleStatus: (key: ItemKey) => Promise<string | null>;
 };
 
 export type Baseline = { lastStreamId: string; dlqLength: number };
