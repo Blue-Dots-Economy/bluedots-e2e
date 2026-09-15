@@ -44,6 +44,19 @@ const TIMING = {
  */
 export const KEYCLOAK_ISSUER = 'http://localhost:8080';
 
+/**
+ * The HMAC identity signals-dpg signs notification requests with.
+ *
+ * notification-service reads its half from a mounted internal-secrets.json;
+ * both halves are generated from these so the two cannot drift. A run boots
+ * the service fresh and it is unreachable outside its compose network, so
+ * these are fixed test values like the rest.
+ */
+export const NOTIFICATION_KEY_ID = 'signals-dpg';
+export const NOTIFICATION_SECRET = 'journey-notification-secret';
+/** Internal to the compose network; nothing publishes it. */
+export const NOTIFICATION_PORT = 3001;
+
 export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
   return {
     ...TEST_SECRETS,
@@ -83,6 +96,13 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // two settings drifting apart.
     SIGNALS_API_SECRET: 'journey-signals-api-secret',
     KEYCLOAK_API_CLIENT_SECRET: 'journey-signals-api-secret',
+
+    // Without all three, getNotificationClient() returns undefined and the
+    // API silently sends nothing -- which is what made the notification
+    // pipeline unassertable rather than merely untested.
+    NOTIFICATION_SERVICE_ENDPOINT: `http://notification-service:${NOTIFICATION_PORT}`,
+    NOTIFICATION_SERVICE_KEY_ID: NOTIFICATION_KEY_ID,
+    NOTIFICATION_SERVICE_SECRET: NOTIFICATION_SECRET,
 
     // signals-search: one image for api and worker, sharing signals-dpg's
     // database. EMBEDDING_DIM must equal item_search.embedding's vector(1024)

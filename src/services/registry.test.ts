@@ -14,8 +14,10 @@ describe('SERVICE_REGISTRY', () => {
     ]);
   });
 
-  test('names the two a run boots, which is what must resolve to a digest', () => {
-    expect(BOOTED_SERVICES).toEqual(['signals-dpg', 'signals-search']);
+  test('names the ones a run boots, which is what must resolve to a digest', () => {
+    // aggregator-dpg is the odd one out: its realm and themes are read from
+    // the checkout, so it is resolved for provenance and never started.
+    expect(BOOTED_SERVICES).toEqual(['signals-dpg', 'signals-search', 'notification-service']);
   });
 
   test('derives the spec sources from it, rather than keeping a second list', () => {
