@@ -15,7 +15,9 @@ export function createNotificationProbe(cfg: {
   /** Defaults are notification-service's own queue keys. */
   queues?: readonly string[];
 }): NotificationProbe & { close: () => Promise<void> } {
-  const queues = cfg.queues ?? ['queue:realtime', 'queue:other'];
+  // The dead-letter queue too: a job that failed to send is still evidence
+  // that signals-dpg produced one.
+  const queues = cfg.queues ?? ['queue:realtime', 'queue:other', 'queue:dlq'];
   const redis = new Redis(cfg.redisUrl, { maxRetriesPerRequest: 3 });
 
   return {
@@ -35,6 +37,24 @@ export function createNotificationProbe(cfg: {
       } catch {
         // null, never []: an empty list is what a quiet queue reads, and
         // the awaiter would take that as "nothing yet" until its deadline.
+        return null;
+      }
+    },
+
+    async dedupeKeys() {
+      try {
+        // SCAN rather than KEYS: this shares the stack's Redis with the
+        // ingest stream and the item cache, and KEYS blocks the server for
+        // the whole keyspace.
+        const found: string[] = [];
+        let cursor = '0';
+        do {
+          const [next, batch] = await redis.scan(cursor, 'MATCH', 'dedupe:*', 'COUNT', 500);
+          cursor = next;
+          found.push(...batch);
+        } while (cursor !== '0');
+        return found;
+      } catch {
         return null;
       }
     },

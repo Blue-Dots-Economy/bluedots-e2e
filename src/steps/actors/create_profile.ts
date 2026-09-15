@@ -134,13 +134,19 @@ export const createProfile = (spec: {
       // requireLive: false when consent was withheld on purpose -- the item
       // is SUPPOSED to be draft there, and extractItemKey's live check would
       // report that correct outcome as a failure.
-      const key = extractItemKey(
-        (await res.json()) as Parameters<typeof extractItemKey>[0],
-        { requireLive: !spec.withoutConsent },
-      );
+      const created = (await res.json()) as Parameters<typeof extractItemKey>[0] & {
+        user_id?: string;
+      };
+      const key = extractItemKey(created, { requireLive: !spec.withoutConsent });
       state.itemKey = key;
       // Kept by domain as well, so an action journey can name which of its
       // two profiles a later step means.
-      state.profiles = { ...state.profiles, [spec.as]: { key, itemState, email } };
+      // user_id as well as the address: signals-dpg keys its notification
+      // dedupe on the OWNER, not on the recipient, so this is what makes a
+      // queued notification attributable to this profile.
+      state.profiles = {
+        ...state.profiles,
+        [spec.as]: { key, itemState, email, userId: created.user_id ?? '' },
+      };
     },
   });

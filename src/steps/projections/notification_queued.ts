@@ -52,9 +52,16 @@ export const expectNotificationQueued = (spec: {
         probe,
         {
           to: profile.email,
+          // The owner, because signals-dpg keys its dedupe on who the
+          // notification is FOR rather than on the address it goes to.
+          ...(profile.userId ? { ownerId: profile.userId } : {}),
           ...(spec.templateIdIncludes ? { templateIdIncludes: spec.templateIdIncludes } : {}),
         },
-        { baseline, deadlineMs: spec.deadlineMs ?? 20_000 },
+        // Short: the dedupe key carries a 5-second TTL, so the evidence
+        // expires. Polling starts immediately after the triggering step, and
+        // a notification that has not been accepted within a few seconds was
+        // not sent best-effort -- it was not sent.
+        { baseline, deadlineMs: spec.deadlineMs ?? 4_000, pollMs: 100 },
       );
     },
   });

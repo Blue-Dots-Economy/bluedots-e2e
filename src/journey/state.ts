@@ -19,7 +19,10 @@ export type JourneyState = {
    * means. itemKey stays the most recent, so every single-profile journey
    * is unaffected.
    */
-  profiles?: Record<string, { key: ItemKey; itemState: Record<string, unknown>; email: string }>;
+  profiles?: Record<
+    string,
+    { key: ItemKey; itemState: Record<string, unknown>; email: string; userId: string }
+  >;
   /** The action a step performed, for the step that resolves it. */
   actionId?: string;
   /**

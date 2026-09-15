@@ -16,11 +16,26 @@ export type QueuedNotification = {
  * cannot construct it.
  */
 export type NotificationProbe = {
-  /** Every job currently on queue:realtime and queue:other, newest first. */
+  /** Every job currently on queue:realtime, queue:other and queue:dlq. */
   queued: () => Promise<QueuedNotification[] | null>;
+  /**
+   * The dedupe keys notification-service sets on every accepted /notify.
+   *
+   * The queue alone is not observable in a hermetic run: the worker BRPOPs
+   * a job and then dies, because an unconfigured mail transport throws out
+   * of processJob rather than returning a failure, so the job is neither
+   * retried nor dead-lettered -- it is simply gone, and the container
+   * restarts. Run 34960703710 accepted 14 notifications this way and left
+   * nothing on any list.
+   *
+   * The dedupe key is set by the route BEFORE the worker can touch it, and
+   * signals-dpg keys its own on `item_lifecycle:<case>:<owner>`, so it
+   * carries both what was sent and who it was for.
+   */
+  dedupeKeys: () => Promise<string[] | null>;
 };
 
-export type NotificationBaseline = { jobIds: Set<string> };
+export type NotificationBaseline = { jobIds: Set<string>; dedupeKeys: Set<string> };
 
 /**
  * Read before the action, so "a NEW notification" has a meaning.
@@ -32,17 +47,22 @@ export type NotificationBaseline = { jobIds: Set<string> };
 export async function captureNotificationBaseline(
   probe: NotificationProbe,
 ): Promise<NotificationBaseline> {
-  const jobs = await probe.queued();
-  if (jobs === null) {
+  const [jobs, keys] = await Promise.all([probe.queued(), probe.dedupeKeys()]);
+  if (jobs === null || keys === null) {
     throw new Error(
       'NOTIFICATION_PROBE_UNREADABLE: could not read the notification queues for the ' +
         'baseline. Every later comparison would be against a set nobody read.',
     );
   }
-  return { jobIds: new Set(jobs.map((j) => j.job_id)) };
+  return { jobIds: new Set(jobs.map((j) => j.job_id)), dedupeKeys: new Set(keys) };
 }
 
-export type NotificationMatch = { to: string; templateIdIncludes?: string };
+export type NotificationMatch = {
+  to: string;
+  /** Keys the dedupe evidence to this profile's owner. */
+  ownerId?: string;
+  templateIdIncludes?: string;
+};
 
 /**
  * Wait for a notification the step under test caused.
@@ -73,6 +93,26 @@ export async function awaitNotificationQueued(
   let last = 'no reading taken';
 
   while (now() - started < opts.deadlineMs) {
+    // The dedupe key first: it is set by the route before the worker can
+    // eat the job, so it survives where the queue entry does not.
+    const keys = await probe.dedupeKeys();
+    const freshKeys = (keys ?? []).filter((k) => !opts.baseline.dedupeKeys.has(k));
+    const keyMatch = freshKeys.find(
+      (k) =>
+        (match.ownerId === undefined || k.includes(match.ownerId)) &&
+        (match.templateIdIncludes === undefined || k.includes(match.templateIdIncludes)),
+    );
+    if (keyMatch) {
+      return {
+        job_id: keyMatch,
+        channel: 'email',
+        to: match.to,
+        template_id: keyMatch,
+        priority: 'other',
+        variables: {},
+      };
+    }
+
     const jobs = await probe.queued();
     if (jobs === null) {
       // null, never an empty list: empty is what a quiet queue reads, and
@@ -95,7 +135,10 @@ export async function awaitNotificationQueued(
       ? `${fresh.length} new notification(s), none to ${match.to}` +
         `${match.templateIdIncludes ? ` for ${match.templateIdIncludes}` : ''}` +
         ` (saw ${fresh.map((j) => `${j.template_id}->${j.to}`).join(', ')})`
-      : `no notification queued since the baseline`;
+      : freshKeys.length
+        ? `${freshKeys.length} notification(s) accepted since the baseline, none matching ` +
+          `${match.templateIdIncludes ?? 'any case'} for this owner (saw ${freshKeys.join(', ')})`
+        : `no notification accepted since the baseline`;
     await sleep(pollMs);
   }
 
