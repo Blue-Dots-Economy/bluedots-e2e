@@ -179,12 +179,7 @@ async function seedBootedStack(
   // signals-api's own key for calling signals-search. Its value is fixed
   // at boot in stack_env; the row can only exist now, and nothing uses it
   // until the first discover request.
-  await grantSearchCallerKey({
-    exec: (svc, cmd) => provider.exec(svc, cmd),
-    // Any valid user: signals-search only reads the key's user_id to know
-    // who is calling, and this key is the API's own service identity.
-    userId: seeded.participant.userId,
-  });
+  await grantSearchCallerKey({ exec: (svc, cmd) => provider.exec(svc, cmd) });
 
   const probe = createIngestProbe({
     redisUrl: env.endpoints.redisUrl,

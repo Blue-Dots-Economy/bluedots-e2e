@@ -27,25 +27,41 @@ export const hashApiKey = (raw: string) => createHash('sha256').update(raw).dige
  */
 export async function grantSearchCallerKey(deps: {
   exec: (service: string, command: readonly string[]) => Promise<string>;
-  /** The service user the key belongs to; any valid user works. */
-  userId: string;
 }): Promise<void> {
   const hashed = hashApiKey(SEARCH_CALLER_API_KEY);
+  // The owner is SELECTed from the service key that already exists rather
+  // than named. The participant's id is a Keycloak subject and has no row
+  // in signals-dpg's `user` table, so naming it violated
+  // apikey_user_id_user_id_fk and took the whole boot down -- correctly
+  // reported as a harness failure, but a boot nonetheless.
   const sql = `
     INSERT INTO "apikey" (id, name, key, user_id, reference_id, config_id,
                           start, prefix, enabled, rate_limit_enabled,
                           created_at, updated_at)
-    VALUES ('key_journey_search_caller', 'journey search caller', '${hashed}',
-            '${deps.userId}', '${deps.userId}', 'default',
-            '${SEARCH_CALLER_API_KEY.slice(0, 6)}', 'sk_signals_', true, false,
-            now(), now())
+    SELECT 'key_journey_search_caller', 'journey search caller', '${hashed}',
+           a.user_id, a.user_id, 'default',
+           '${SEARCH_CALLER_API_KEY.slice(0, 6)}', 'sk_signals_', true, false,
+           now(), now()
+      FROM "apikey" a
+     WHERE a.prefix = 'sk_signals_' AND a.user_id IS NOT NULL
+     LIMIT 1
     ON CONFLICT (id) DO NOTHING;`;
 
   const out = await deps.exec('postgres', [
     'psql', '-U', 'postgres', '-d', 'postgresdb', '-v', 'ON_ERROR_STOP=1', '-c', sql,
   ]);
 
-  if (!/INSERT|^$/m.test(out)) {
+  // INSERT 0 0 means the SELECT matched nothing: no service key exists, so
+  // signals-api would call signals-search with a key nobody knows and the
+  // BFF would fall back silently -- the exact failure this grant prevents.
+  if (/INSERT 0 0/.test(out)) {
+    throw new Error(
+      'SEED_FAILED: no existing service apikey to hang the search caller key on, so ' +
+        'signals-api cannot authenticate to signals-search and the discover BFF will ' +
+        'fall back to its native query without saying so.',
+    );
+  }
+  if (!/INSERT/.test(out)) {
     throw new Error(
       `SEED_FAILED: could not grant the search caller key. psql said: ${out.trim()}`,
     );
