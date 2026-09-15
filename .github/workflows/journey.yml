@@ -46,12 +46,11 @@ on:
         # is the one target enumeration that cannot be computed: GitHub
         # renders it when the form opens, before any job exists.
         #
-        # KEEP IN STEP WITH THE JOURNEY REGISTRY. matrixEntries falls back
-        # to the precise id when two covered targets share a dot, so the day
-        # blue_dot/up-gzb is also covered, "blue_dot" matches neither label
-        # and this form offers a choice the prepare job rejects. Replace it
-        # with the two instance ids then. `journey --matrix` prints the
-        # labels this list should hold.
+        # KEEP IN STEP WITH THE JOURNEY REGISTRY -- a new dot needs adding
+        # here by hand. Instances do not: prepare also matches a dot, so
+        # "blue_dot" keeps working when a second blue_dot instance is
+        # covered, and verifies every covered instance of it.
+        # `journey --matrix` prints what is currently covered.
         options: ['', purple_dot, blue_dot]
         default: ''
 
@@ -95,13 +94,18 @@ jobs:
           set -euo pipefail
           discovered=$(pnpm -s journey --matrix)
           if [ -n "$CHOSEN" ]; then
-            # Matched on the label OR the precise target, so the form can
-            # offer "blue_dot" while the run verifies blue_dot/ka-dhwd --
-            # and naming the instance outright still works. An unknown one
-            # fails here in seconds rather than in a matrix job that boots a
-            # stack before resolving anything.
+            # Matched on the precise target, the label, or the DOT, so the
+            # form can offer "blue_dot" while the run verifies
+            # blue_dot/ka-dhwd -- and naming an instance outright still
+            # works. The dot match is what keeps this working when a second
+            # instance is covered: matrixEntries relabels both to their full
+            # ids then, so neither is called "blue_dot" any more, and
+            # selecting the dot verifies every covered instance of it.
+            # An unknown choice fails here in seconds rather than in a
+            # matrix job that boots a stack before resolving anything.
             targets=$(printf '%s' "$discovered" \
-              | jq -c --arg t "$CHOSEN" '[.[] | select(.target == $t or .label == $t)]')
+              | jq -c --arg t "$CHOSEN" \
+                '[.[] | select(.target == $t or .label == $t or (.target | split("/")[0]) == $t)]')
             if [ "$targets" = "[]" ]; then
               echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.label)')."
               exit 1
