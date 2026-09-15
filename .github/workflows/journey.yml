@@ -36,22 +36,22 @@ on:
       notification_service_tag:
         description: notification-service image tag (blank = release tag)
         required: false
+      # Free text, not a choice list. A `choice` is rendered when the form
+      # opens, before any job could ask the harness what exists, so its
+      # options had to be maintained by hand -- the last place a target was
+      # enumerated anywhere. Typing it instead means the schemas and the
+      # journey registry are the only things that decide what can run.
+      #
+      # A typo costs seconds, not a boot: prepare validates against
+      # `journey --matrix` and fails naming what this release does verify.
       target:
-        description: Single dot to verify; blank verifies every dot a journey covers
+        description: >-
+          Dot (<dot>) or instance (<dot>/<instance>) to verify. A dot
+          verifies every covered instance of it. Blank verifies every dot a
+          journey covers; an unknown value fails in seconds naming the ones
+          that exist.
         required: false
-        type: choice
-        # Dots, not instances. The prepare job resolves one of these to the
-        # precise target -- blue_dot to blue_dot/ka-dhwd -- and still accepts
-        # a full id, so an instance can be named when it matters. This list
-        # is the one target enumeration that cannot be computed: GitHub
-        # renders it when the form opens, before any job exists.
-        #
-        # KEEP IN STEP WITH THE JOURNEY REGISTRY -- a new dot needs adding
-        # here by hand. Instances do not: prepare also matches a dot, so
-        # "blue_dot" keeps working when a second blue_dot instance is
-        # covered, and verifies every covered instance of it.
-        # `journey --matrix` prints what is currently covered.
-        options: ['', purple_dot, blue_dot]
+        type: string
         default: ''
 
 # Without packages: read the ghcr pull fails as an auth error, which the
@@ -107,7 +107,7 @@ jobs:
               | jq -c --arg t "$CHOSEN" \
                 '[.[] | select(.target == $t or .label == $t or (.target | split("/")[0]) == $t)]')
             if [ "$targets" = "[]" ]; then
-              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.label)')."
+              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)') — pass one of those, a dot, or leave it blank for all."
               exit 1
             fi
           else
@@ -115,6 +115,14 @@ jobs:
           fi
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
           echo "verifying: $targets"
+          # In the summary too: with no choice list on the form, this is
+          # where someone finds out what they could have typed.
+          {
+            echo "### Targets"
+            echo
+            printf '%s' "$discovered" | jq -r '.[] | "- `\(.target)` — job `verify \(.label)`"'
+            [ -n "$CHOSEN" ] && echo && echo "_Narrowed to \`$CHOSEN\`._"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   verify:
     # The dot, not the dot/instance: an instance is width in a job list
