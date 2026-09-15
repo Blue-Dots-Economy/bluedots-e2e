@@ -8,6 +8,46 @@ type SearchResponse = {
   message?: { items?: SearchItem[]; meta?: { total?: number } };
 };
 
+/**
+ * Ask search what it holds for this item, and on what field it can be
+ * isolated.
+ *
+ * Shared by the found and not-found assertions: both need the same answer
+ * to "which field survived indexing", and duplicating that choice is how
+ * the two drift into asserting different things.
+ */
+export async function probeSearch(ctx: StepContext): Promise<{
+  search: (filter: { field: string; value: unknown } | null) => Promise<SearchPage>;
+  key: ReturnType<typeof requireState<'itemKey'>>;
+  written: Record<string, unknown>;
+  where: string;
+}> {
+  const auth = requireContext(ctx.auth, 'authentication');
+  const key = requireState(ctx.state, 'itemKey');
+  const written = requireState(ctx.state, 'itemState');
+
+  const search = async (filter: { field: string; value: unknown } | null) => {
+    const res = await ctx.http(`${ctx.endpoints.searchApi}/v1/search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': auth.apiKey },
+      body: JSON.stringify(buildSearchBody(key, filter)),
+    });
+
+    if (!res.ok) {
+      throw new Error(`STEP_FAILED: search ${res.status} ${await res.text()}`);
+    }
+    const body = (await res.json()) as SearchResponse;
+    return {
+      items: body.message?.items ?? [],
+      total: body.message?.meta?.total ?? body.message?.items?.length ?? 0,
+    };
+  };
+
+  return { search, key, written, where: `${key.network}/${key.domain}/${key.type}` };
+}
+
+type SearchPage = { items: SearchItem[]; total: number };
+
 /** Assert set membership, never rank position. */
 export const expectFoundInSearch = () =>
   step({

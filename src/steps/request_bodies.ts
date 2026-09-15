@@ -11,8 +11,11 @@ export type UpsertBody = {
   terms_accepted: boolean;
   /** Required: the route rejects a body carrying neither identifier. */
   email: string;
-  /** What actually promotes the item past draft. */
-  compliance: { key: string; value: boolean }[];
+  /**
+   * What actually promotes the item past draft. Optional so a journey can
+   * omit it deliberately and pin what happens without consent.
+   */
+  compliance?: { key: string; value: boolean }[];
   /** Required alongside consent on guardian-gated domains. */
   age: number;
 };
@@ -63,6 +66,14 @@ export function buildUpsertBody(spec: {
   itemState?: Record<string, unknown>;
   /** Defaults to an adult; see ADULT_AGE. */
   age?: number;
+  /**
+   * Omit the compliance entries entirely.
+   *
+   * A domain whose go_live_required includes consent_required leaves the
+   * item `draft` without them -- with a 200 on the way in, which is the
+   * shape the consent journey exists to pin.
+   */
+  withoutConsent?: boolean;
 }): UpsertBody {
   return {
     channel: 'bulk',
@@ -76,11 +87,15 @@ export function buildUpsertBody(spec: {
     email: spec.email,
     // Accept-only: `false` on any entry rejects the whole request with
     // CONSENT_DECLINED, so entries are either present-and-true or omitted.
-    compliance: [
-      { key: 'user_terms', value: true },
-      { key: 'user_privacy', value: true },
-      { key: 'profile_creation', value: true },
-    ],
+    ...(spec.withoutConsent
+      ? {}
+      : {
+          compliance: [
+            { key: 'user_terms', value: true },
+            { key: 'user_privacy', value: true },
+            { key: 'profile_creation', value: true },
+          ],
+        }),
     age: spec.age ?? ADULT_AGE,
   };
 }
@@ -102,11 +117,14 @@ type UpsertResponse = {
  * is invisible to search however well ingestion works, so failing later
  * would point at the wrong subsystem.
  */
-export function extractItemKey(res: UpsertResponse): ItemKey {
+export function extractItemKey(
+  res: UpsertResponse,
+  opts: { requireLive?: boolean } = {},
+): ItemKey {
   const item = res.items[0];
   if (!item) throw new Error('STEP_FAILED: the upsert wrote no item');
 
-  if (item.lifecycle_status && item.lifecycle_status !== 'live') {
+  if (opts.requireLive !== false && item.lifecycle_status && item.lifecycle_status !== 'live') {
     throw new Error(
       `STEP_FAILED: item is ${item.lifecycle_status}, not live — search only ` +
         `returns live items. Check consent and that an owning aggregator org exists.`,

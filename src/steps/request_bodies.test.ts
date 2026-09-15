@@ -49,7 +49,7 @@ describe('buildUpsertBody consent', () => {
       network: 'purple_dot', domain: 'seeker', name: 'J2', email: 'j2@example.test',
     });
 
-    expect(body.compliance.find((c) => c.key === 'profile_creation')?.value).toBe(true);
+    expect(body.compliance!.find((c) => c.key === 'profile_creation')?.value).toBe(true);
   });
 
   test('sends user_terms and user_privacy together, as the route demands', () => {
@@ -57,7 +57,7 @@ describe('buildUpsertBody consent', () => {
     // 400 USER_LEVEL_INCOMPLETE.
     const keys = buildUpsertBody({
       network: 'purple_dot', domain: 'seeker', name: 'J2', email: 'j2@example.test',
-    }).compliance.map((c) => c.key);
+    }).compliance!.map((c) => c.key);
 
     expect(keys).toContain('user_terms');
     expect(keys).toContain('user_privacy');
@@ -69,7 +69,7 @@ describe('buildUpsertBody consent', () => {
       network: 'purple_dot', domain: 'seeker', name: 'J2', email: 'j2@example.test',
     });
 
-    expect(body.compliance.every((c) => c.value === true)).toBe(true);
+    expect(body.compliance!.every((c) => c.value === true)).toBe(true);
   });
 });
 
@@ -154,5 +154,33 @@ describe('buildSearchBody pagination', () => {
     );
 
     expect(body.message.pagination).toEqual({ limit: 100, offset: 0 });
+  });
+});
+
+describe('an upsert without consent', () => {
+  test('omits compliance entirely rather than sending false', () => {
+    // `false` on any entry rejects the whole request with CONSENT_DECLINED,
+    // which is a different thing from never consenting: the journey needs a
+    // 200 that leaves the item draft.
+    const body = buildUpsertBody({
+      network: 'purple_dot',
+      domain: 'seeker',
+      name: 'Journey seeker',
+      email: 'x@example.test',
+      withoutConsent: true,
+    });
+
+    expect(body.compliance).toBeUndefined();
+  });
+
+  test('still consents by default, so every other journey is unaffected', () => {
+    const body = buildUpsertBody({
+      network: 'purple_dot',
+      domain: 'seeker',
+      name: 'Journey seeker',
+      email: 'x@example.test',
+    });
+
+    expect(body.compliance).toHaveLength(3);
   });
 });

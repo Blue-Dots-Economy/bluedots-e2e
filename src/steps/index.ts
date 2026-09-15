@@ -8,5 +8,12 @@
  * with fixtures and generated clients underneath.
  */
 export { createProfile } from './actors/create_profile.js';
+export { changeLifecycle } from './actors/change_lifecycle.js';
+export { editProfile } from './actors/edit_profile.js';
 export { waitUntilThisItemIndexed } from './awaiters/wait_for_indexing.js';
 export { expectFoundInSearch } from './projections/search_results.js';
+export { expectNotFoundInSearch } from './projections/not_in_search.js';
+export { expectNotificationQueued } from './projections/notification_queued.js';
+export { expectLifecycleStatus } from './projections/item_status.js';
+export { expectFoundInDiscover } from './projections/discover_feed.js';
+export { expectSameParticipant } from './projections/participant_identity.js';

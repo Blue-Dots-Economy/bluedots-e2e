@@ -23,6 +23,12 @@ export type StepContext = {
   target?: import('../targets/target_schemas.js').TargetSchemas;
   /** Present only where the environment offers redis + postgres. */
   probe?: import('../awaiters/ingest.js').IngestProbe;
+  /**
+   * Reads the queues notification-service writes to. Present only where the
+   * environment runs it -- a journey asserting a notification reports NOT
+   * COVERED elsewhere rather than asserting something weaker.
+   */
+  notifications?: import('../awaiters/notification.js').NotificationProbe;
   auth?: { apiKey: string; actingOrgId: string; participantToken: string };
 };
 

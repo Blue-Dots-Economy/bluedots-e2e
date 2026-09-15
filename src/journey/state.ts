@@ -11,6 +11,24 @@ import type { Baseline, ItemKey } from '../awaiters/ingest.js';
 export type JourneyState = {
   itemKey?: ItemKey;
   itemState?: Record<string, unknown>;
+  /**
+   * Every profile this journey created, by the domain it was created as.
+   *
+   * An action needs two: blue_dot's `apply` runs seeker -> provider, so a
+   * scenario creates both and each step has to be able to name which one it
+   * means. itemKey stays the most recent, so every single-profile journey
+   * is unaffected.
+   */
+  profiles?: Record<string, { key: ItemKey; itemState: Record<string, unknown>; email: string }>;
+  /** The action a step performed, for the step that resolves it. */
+  actionId?: string;
+  /**
+   * The notification queue as it stood before the triggering step.
+   *
+   * Seeding sends mail of its own, so "a job is queued" proves nothing --
+   * only a job absent from this baseline was caused by the step.
+   */
+  notificationBaseline?: import('../awaiters/notification.js').NotificationBaseline;
   baseline?: Baseline;
   seed?: string;
 };
@@ -20,6 +38,9 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   itemKey: 'createProfile',
   itemState: 'createProfile',
   baseline: 'createProfile',
+  profiles: 'createProfile',
+  actionId: 'performApply',
+  notificationBaseline: 'the step that triggers the notification',
   seed: 'the run',
 };
 

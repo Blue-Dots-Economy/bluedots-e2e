@@ -25,6 +25,7 @@ import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
+import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 
@@ -33,6 +34,7 @@ export type BootedStack = {
   env: EnvironmentContext;
   seeded: SeedResult;
   probe: ReturnType<typeof createIngestProbe>;
+  notifications: ReturnType<typeof createNotificationProbe>;
   target: TargetSchemas;
   targetId: string;
   digests: Record<string, string>;
@@ -175,12 +177,16 @@ async function seedBootedStack(
     redisUrl: env.endpoints.redisUrl,
     postgresUrl: env.endpoints.postgresUrl,
   });
+  // Same Redis, different keys: notification-service shares the stack's
+  // instance and writes its jobs to plain lists.
+  const notifications = createNotificationProbe({ redisUrl: env.endpoints.redisUrl });
 
   return {
     provider,
     env,
     seeded,
     probe,
+    notifications,
     target,
     targetId,
     digests,
@@ -193,6 +199,7 @@ async function seedBootedStack(
       seeded: seeded as unknown as Record<string, unknown>,
       target,
       probe,
+      notifications,
       auth: {
         apiKey: seeded.apiKey,
         actingOrgId: seeded.aggregatorOrgId,
@@ -205,5 +212,6 @@ async function seedBootedStack(
 /** Close the probe's connections before the containers they point at go. */
 export async function teardownStack(stack: BootedStack | undefined): Promise<void> {
   await stack?.probe?.close();
+  await stack?.notifications?.close();
   await stack?.provider?.down();
 }
