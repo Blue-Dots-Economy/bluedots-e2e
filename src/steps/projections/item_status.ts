@@ -18,15 +18,22 @@ export const expectLifecycleStatus = (spec: { is: string; because: string }) =>
       const auth = requireContext(ctx.auth, 'authentication');
       const key = requireState(ctx.state, 'itemKey');
 
-      const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/item/fetch`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': auth.apiKey,
-          'x-acting-org-id': auth.actingOrgId,
-        },
-        body: JSON.stringify({ item_ids: [key.id] }),
+      // GET with a query, not a POST body: /api/v1/item/fetch is a read and
+      // the route declares `query: FetchItemsQuerySchema`. A POST there is a
+      // 404 for the route, which reads like the endpoint not existing.
+      const query = new URLSearchParams({
+        item_id: key.id,
+        item_network: key.network,
+        item_domain: key.domain,
+        item_type: key.type,
       });
+      const res = await ctx.http(
+        `${ctx.endpoints.signalsApi}/api/v1/item/fetch?${query.toString()}`,
+        {
+          method: 'GET',
+          headers: { 'x-api-key': auth.apiKey, 'x-acting-org-id': auth.actingOrgId },
+        },
+      );
 
       if (!res.ok) {
         throw new Error(`STEP_FAILED: item fetch ${res.status} ${await res.text()}`);

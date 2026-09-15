@@ -1,5 +1,6 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireState } from '../../journey/state.js';
+import { survivingField } from './search_results.js';
 
 type DiscoverResponse = { items?: { item_id: string }[]; meta?: { total?: number } };
 
@@ -26,11 +27,6 @@ export const expectFoundInDiscover = (spec: { byFacet?: boolean } = {}) =>
       const key = requireState(ctx.state, 'itemKey');
       const written = requireState(ctx.state, 'itemState');
 
-      const field = Object.keys(written).find(
-        (k) => typeof written[k] === 'string' && String(written[k]).startsWith('journey'),
-      );
-      if (!field) throw new Error('STEP_FAILED: no identifying field in the fixture');
-
       const discover = async (filters?: { field: string; values: unknown[] }[]) => {
         const res = await ctx.http(
           `${ctx.endpoints.signalsApi}/api/v1/network/item/discover`,
@@ -52,6 +48,14 @@ export const expectFoundInDiscover = (spec: { byFacet?: boolean } = {}) =>
         return { items: body.items ?? [], total: body.meta?.total ?? 0 };
       };
 
+      // Which field to filter on has to come from what the read model
+      // HOLDS, not from what was written: a domain's contact fields come
+      // back masked ("j***"), so filtering on one matches nothing and reads
+      // as a broken filter. blue_dot requires name and phone, and both are
+      // its contact_fields, so the first seed-distinct field is exactly the
+      // wrong choice there.
+      const field = spec.byFacet ? await survivingField(ctx, written) : undefined;
+
       if (!spec.byFacet) {
         const page = await discover();
         if (page.items.some((i) => i.item_id === key.id)) return;
@@ -63,16 +67,17 @@ export const expectFoundInDiscover = (spec: { byFacet?: boolean } = {}) =>
         );
       }
 
-      const matching = await discover([{ field, values: [written[field]] }]);
+      const facet = field!;
+      const matching = await discover([{ field: facet, values: [written[facet]] }]);
       if (!matching.items.some((i) => i.item_id === key.id)) {
         throw new Error(
-          `STEP_FAILED: filtering ${field} = ${JSON.stringify(written[field])} did not ` +
+          `STEP_FAILED: filtering ${facet} = ${JSON.stringify(written[facet])} did not ` +
             `return ${key.id}; the feed gave ${matching.items.length} item(s).`,
         );
       }
 
       // A filter the BFF silently dropped would have returned the item too.
-      const other = await discover([{ field, values: ['journey-no-such-value'] }]);
+      const other = await discover([{ field: facet, values: ['journey-no-such-value'] }]);
       if (other.items.some((i) => i.item_id === key.id)) {
         throw new Error(
           `STEP_FAILED: filtering ${field} on a value nothing has still returned ${key.id}, ` +

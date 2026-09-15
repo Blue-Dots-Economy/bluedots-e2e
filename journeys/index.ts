@@ -6,7 +6,7 @@ import { browseFeedHonoursAFilter } from './search/browse_feed_honours_a_filter.
 import { pausedProfileLeavesSearch } from './lifecycle/paused_profile_leaves_search.js';
 import { retiredProfileLeavesSearch } from './lifecycle/retired_profile_leaves_search.js';
 import { participantIsNotDuplicated } from './onboarding/participant_is_not_duplicated.js';
-import { secondProfileJoinsTheSamePerson } from './onboarding/second_profile_joins_the_same_person.js';
+import { onePersonOneDomain } from './onboarding/one_person_one_domain.js';
 import { profileWithoutConsentStaysHidden } from './consent/profile_without_consent_stays_hidden.js';
 import { onboardingNotifiesTheParticipant } from './notifications/onboarding_notifies_the_participant.js';
 import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
@@ -34,9 +34,9 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   retiredProfileLeavesSearch,
   // participant-onboarding
   participantIsNotDuplicated,
-  secondProfileJoinsTheSamePerson,
   // consent-and-data-disclosure
   profileWithoutConsentStaysHidden,
+  onePersonOneDomain,
   // notifications
   onboardingNotifiesTheParticipant,
   pausingNotifiesTheOwner,

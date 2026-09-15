@@ -263,6 +263,20 @@ export class ComposeProvider implements EnvironmentProvider {
     );
   }
 
+  /**
+   * Every service's log, while the containers still exist.
+   *
+   * The workflow's triage step runs after the suite process has ended, and
+   * the suite tears its stack down in afterAll -- so by the time that step
+   * ran, `docker compose ls` was empty and the bundle captured a header row
+   * and nothing else. A failure whose cause is in a service log was
+   * therefore undiagnosable from the artifact, which is the one thing the
+   * bundle exists for.
+   */
+  async logs(tail = 400): Promise<string> {
+    return this.deps.run(this.args(['logs', '--no-color', '--timestamps', '--tail', String(tail)]));
+  }
+
   async down(): Promise<void> {
     // -v removes volumes. A surviving volume carries the previous run's realm
     // and database, which is how a hermetic suite quietly stops being one.

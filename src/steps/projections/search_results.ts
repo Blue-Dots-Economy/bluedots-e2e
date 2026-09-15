@@ -122,6 +122,34 @@ export const expectFoundInSearch = () =>
   });
 
 /**
+ * The field this run's item can be isolated by, asked of the read model.
+ *
+ * Exported because the browse feed needs the same answer: a domain's
+ * contact fields come back masked, so filtering on one matches nothing and
+ * reads as a broken filter rather than as a masked value. blue_dot requires
+ * name and phone and both are its contact_fields, so "the first
+ * seed-distinct field" is exactly the wrong choice there.
+ */
+export async function survivingField(
+  ctx: StepContext,
+  written: Record<string, unknown>,
+): Promise<string> {
+  const { search, key } = await probeSearch(ctx);
+  const visible = await search(null);
+  const row = visible.items.find((i) => i.item_id === key.id);
+  if (!row) {
+    throw new Error(
+      `STEP_FAILED: ${key.id} is not visible to search, so there is no way to know ` +
+        `which of its fields survived indexing.`,
+    );
+  }
+
+  const field = identifyingField(written, row.item_state ?? {});
+  if (!field) throw new Error(noSurvivingField(written, row.item_state ?? {}));
+  return field;
+}
+
+/**
  * A field that isolates THIS run's item in the index.
  *
  * Seed-distinct so a previous run's item cannot satisfy it, and stored

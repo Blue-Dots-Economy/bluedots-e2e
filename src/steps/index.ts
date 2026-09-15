@@ -10,7 +10,9 @@
 export { createProfile } from './actors/create_profile.js';
 export { changeLifecycle } from './actors/change_lifecycle.js';
 export { editProfile } from './actors/edit_profile.js';
+export { expectSecondDomainRefused } from './actors/refused_second_domain.js';
 export { waitUntilThisItemIndexed } from './awaiters/wait_for_indexing.js';
+export { waitUntilThisItemRemoved } from './awaiters/wait_for_removal.js';
 export { expectFoundInSearch } from './projections/search_results.js';
 export { expectNotFoundInSearch } from './projections/not_in_search.js';
 export { expectNotificationQueued } from './projections/notification_queued.js';

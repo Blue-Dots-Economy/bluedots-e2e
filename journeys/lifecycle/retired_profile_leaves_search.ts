@@ -5,6 +5,7 @@ import {
   expectLifecycleStatus,
   expectNotFoundInSearch,
   waitUntilThisItemIndexed,
+  waitUntilThisItemRemoved,
 } from '../../src/steps/index.js';
 
 /**
@@ -25,7 +26,9 @@ export const retiredProfileLeavesSearch = {
       createProfile({ as: 'seeker' }),
       waitUntilThisItemIndexed(),
       changeLifecycle({ to: 'retired' }),
-      waitUntilThisItemIndexed(),
+      // Removed, not indexed: retire publishes `delete`, so waiting for the
+      // row to appear waits for something that must never happen.
+      waitUntilThisItemRemoved(),
       expectNotFoundInSearch({ because: 'it is retired' }),
       expectLifecycleStatus({ is: 'retired', because: 'retire is terminal' }),
     ],

@@ -39,6 +39,8 @@ export type BootedStack = {
   targetId: string;
   digests: Record<string, string>;
   seed: string;
+  /** Distinguishes this stack's captured logs from another's. */
+  name: string;
   /** The env the containers actually started with, for anything that has
    * to speak to them with the same credentials. */
   stackEnv: Record<string, string>;
@@ -147,7 +149,7 @@ async function seedBootedStack(
   target: TargetSchemas,
   targetId: string,
   digests: Record<string, string>,
-  opts: { http?: typeof fetch },
+  opts: { http?: typeof fetch; name?: string },
 ): Promise<BootedStack> {
   const env = await provider.up();
   const stackEnv = buildStackEnv(resolved);
@@ -191,6 +193,7 @@ async function seedBootedStack(
     targetId,
     digests,
     seed: seedFromEnv(process.env),
+    name: opts.name ?? 'journeys',
     stackEnv,
     baseCtx: {
       clients: {},
@@ -209,8 +212,26 @@ async function seedBootedStack(
   };
 }
 
-/** Close the probe's connections before the containers they point at go. */
+/**
+ * Capture the logs, then close the probes, then take the stack down.
+ *
+ * The order is the point. The workflow's triage step runs after this
+ * process has exited, so anything it wants from a container is already
+ * gone -- the bundle from a failing run held a docker-ps header row and
+ * nothing else. A service log is where "did signals-dpg even call
+ * /notify" is answered, so it is captured here, while the containers
+ * still exist.
+ */
 export async function teardownStack(stack: BootedStack | undefined): Promise<void> {
+  if (stack?.provider) {
+    try {
+      await mkdir('reports', { recursive: true });
+      await writeFile(`reports/compose-logs-${stack.name}.txt`, await stack.provider.logs());
+    } catch (err) {
+      // Never let capturing evidence be the reason a run fails.
+      console.warn('could not capture compose logs:', err);
+    }
+  }
   await stack?.probe?.close();
   await stack?.notifications?.close();
   await stack?.provider?.down();
