@@ -131,16 +131,19 @@ jobs:
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
           echo "verifying: $targets"
           # In the summary too: with no choice list on the form, this is
-          # where someone finds out what they could have typed.
+          # where someone finds out what they could have asked for. Split
+          # into what IS running and what is not -- a single list of every
+          # covered target reads as a run list, which it is not.
           {
             echo "### Targets"
             echo
-            printf '%s' "$discovered" | jq -r '.[] | "- `\(.target)` — job `verify \(.label)`"'
-            echo
-            if [ -n "$chosen" ]; then
-              echo "_Verifying \`$chosen\`${CHOSEN:+}${CHOSEN:-" (the default; pass \`all\` for every covered dot)"}._"
-            else
-              echo "_Verifying every covered dot._"
+            echo "**Verifying:**"
+            printf '%s' "$targets" | jq -r '.[] | "- `\(.target)` — job `verify \(.label)`"'
+            rest=$(jq -cn --argjson all "$discovered" --argjson sel "$targets" '$all - $sel')
+            if [ "$rest" != "[]" ]; then
+              echo
+              echo "**Not verified by this run** — covered, but not asked for. Pass \`all\`, or name one:"
+              printf '%s' "$rest" | jq -r '.[] | "- `\(.target)`"'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
