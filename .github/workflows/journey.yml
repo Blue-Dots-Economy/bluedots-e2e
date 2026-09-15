@@ -6,7 +6,7 @@ name: release verification
 # so a list of runs is scannable.
 run-name: >-
   Verify ${{ inputs.tag || github.ref_name }} ·
-  ${{ inputs.target || 'every covered dot' }}
+  ${{ inputs.target || 'default dot' }}
 
 # The journey suite runs on a release-candidate tag, against the exact
 # images that tag published. It cannot be a branch-protection check: a tag
@@ -46,10 +46,10 @@ on:
       # `journey --matrix` and fails naming what this release does verify.
       target:
         description: >-
-          Dot (<dot>) or instance (<dot>/<instance>) to verify. A dot
-          verifies every covered instance of it. Blank verifies every dot a
-          journey covers; an unknown value fails in seconds naming the ones
-          that exist.
+          Dot (<dot>) or instance (<dot>/<instance>) to verify, or `all` for
+          every covered dot. A dot verifies every covered instance of it.
+          Blank uses the default dot. An unknown value fails in seconds
+          naming the ones that exist.
         required: false
         type: string
         default: ''
@@ -71,6 +71,14 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      # Which dot a run verifies when nothing is asked for -- including an
+      # RC tag push, which sends no inputs at all. Policy, not an
+      # enumeration: prepare validates it against `journey --matrix` like
+      # any other value, so if this dot stops being covered the run fails
+      # here naming the ones that are, rather than silently verifying
+      # nothing. Pass `all` to verify every covered dot.
+      DEFAULT_TARGET: blue_dot
     outputs:
       targets: ${{ steps.matrix.outputs.targets }}
     steps:
@@ -93,7 +101,14 @@ jobs:
         run: |
           set -euo pipefail
           discovered=$(pnpm -s journey --matrix)
-          if [ -n "$CHOSEN" ]; then
+
+          # Blank means the default dot, not "everything": an RC tag push
+          # sends no inputs, and a run that quietly verifies more than was
+          # asked for costs a runner per extra dot.
+          chosen=${CHOSEN:-$DEFAULT_TARGET}
+          [ "$chosen" = "all" ] && chosen=""
+
+          if [ -n "$chosen" ]; then
             # Matched on the precise target, the label, or the DOT, so the
             # form can offer "blue_dot" while the run verifies
             # blue_dot/ka-dhwd -- and naming an instance outright still
@@ -104,10 +119,10 @@ jobs:
             # An unknown choice fails here in seconds rather than in a
             # matrix job that boots a stack before resolving anything.
             targets=$(printf '%s' "$discovered" \
-              | jq -c --arg t "$CHOSEN" \
+              | jq -c --arg t "$chosen" \
                 '[.[] | select(.target == $t or .label == $t or (.target | split("/")[0]) == $t)]')
             if [ "$targets" = "[]" ]; then
-              echo "::error::Unknown target '$CHOSEN'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)') — pass one of those, a dot, or leave it blank for all."
+              echo "::error::Unknown target '$chosen'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)') — pass one of those, a dot, or 'all'."
               exit 1
             fi
           else
@@ -121,7 +136,12 @@ jobs:
             echo "### Targets"
             echo
             printf '%s' "$discovered" | jq -r '.[] | "- `\(.target)` — job `verify \(.label)`"'
-            [ -n "$CHOSEN" ] && echo && echo "_Narrowed to \`$CHOSEN\`._"
+            echo
+            if [ -n "$chosen" ]; then
+              echo "_Verifying \`$chosen\`${CHOSEN:+}${CHOSEN:-" (the default; pass \`all\` for every covered dot)"}._"
+            else
+              echo "_Verifying every covered dot._"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   verify:

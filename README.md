@@ -78,11 +78,20 @@ target is named anywhere in the workflow**: the target input is free text,
 validated in seconds against that same list, and the `prepare` job prints
 what is covered in the run summary.
 
-Leave it blank to verify every covered dot, one parallel job each. Give it
-a dot to verify every covered instance of that dot, or a full
-`<dot>/<instance>` for exactly one. Jobs are named for the dot
-(`verify blue_dot`), keeping the instance only when two covered targets
-share one.
+| Target input | What runs |
+| --- | --- |
+| *(blank)* | the default dot — `DEFAULT_TARGET` in `journey.yml`, currently `blue_dot`. A release-candidate tag push sends no input, so this is what an automatic run verifies. |
+| `all` | every covered dot, one parallel job each |
+| `blue_dot` | every covered instance of that dot |
+| `blue_dot/ka-dhwd` | exactly that instance |
+| anything else | fails in `prepare`, in seconds, naming the targets that exist |
+
+Jobs are named for the dot (`verify blue_dot`), keeping the instance only
+when two covered targets share one.
+
+**A dot that is covered but not the default is only verified when asked
+for.** The evidence sheet says so under "what a pass here still does not
+prove", so a green run cannot be read as covering more than it did.
 
 Each run uploads `reports/`:
 
