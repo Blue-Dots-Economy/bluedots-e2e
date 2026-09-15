@@ -240,6 +240,11 @@ ${reset('signals-bootstrap')}
       NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
       NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
       NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
+      # Both required by resolveNotifierConfig, which returns null without
+      # logging when either is missing -- the reason the first run with a
+      # notification client still sent nothing at all.
+      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
+      FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
 
@@ -282,6 +287,11 @@ ${reset('signals-api')}
       NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
       NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
       NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
+      # Both required by resolveNotifierConfig, which returns null without
+      # logging when either is missing -- the reason the first run with a
+      # notification client still sent nothing at all.
+      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
+      FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
 

@@ -110,6 +110,13 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     NOTIFICATION_SERVICE_ENDPOINT: `http://notification-service:${NOTIFICATION_PORT}`,
     NOTIFICATION_SERVICE_KEY_ID: NOTIFICATION_KEY_ID,
     NOTIFICATION_SERVICE_SECRET: NOTIFICATION_SECRET,
+    // resolveNotifierConfig() needs a client AND a from-address AND some
+    // URL source, and returns null WITHOUT LOGGING when any is missing --
+    // so the whole pipeline disables itself in silence. Supplying the
+    // client alone bought nothing: no /notify request, no warning, no
+    // trace. All five, or none of it runs.
+    NOTIFICATION_FROM_EMAIL: 'journeys@bluedots.test',
+    FRONTEND_BASE_URL: 'http://localhost:5173',
 
     // signals-search: one image for api and worker, sharing signals-dpg's
     // database. EMBEDDING_DIM must equal item_search.embedding's vector(1024)
