@@ -74,6 +74,11 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // AUTH_PROVIDER defaults to 'betterauth', which keeps every Keycloak path
     // dormant and the KEYCLOAK_* values inert.
     AUTH_PROVIDER: 'keycloak',
+    // Defaults to 'gated', which answers SELF_SIGNUP_DISABLED and makes the
+    // self-service path untestable. An instance that serves the public runs
+    // it allowed, so that is what the suite verifies; a journey for the
+    // gated refusal would need its own stack, like the negative control.
+    SELF_SIGNUP_MODE: 'allowed',
     // iss derives from the PUBLIC url; the internal one is the compose
     // service name. Collapsing them fails every token.
     KEYCLOAK_BASE_URL: KEYCLOAK_ISSUER,

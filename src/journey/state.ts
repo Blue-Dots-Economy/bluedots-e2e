@@ -25,6 +25,8 @@ export type JourneyState = {
   >;
   /** The action a step performed, for the step that resolves it. */
   actionId?: string;
+  /** Who signed themselves up, for the step that checks they are known. */
+  signedUp?: { email: string; domain: string };
   /**
    * The notification queue as it stood before the triggering step.
    *
@@ -43,6 +45,7 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   baseline: 'createProfile',
   profiles: 'createProfile',
   actionId: 'performApply',
+  signedUp: 'signUp',
   notificationBaseline: 'the step that triggers the notification',
   seed: 'the run',
 };
