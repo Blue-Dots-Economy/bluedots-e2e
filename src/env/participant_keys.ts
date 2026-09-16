@@ -27,9 +27,12 @@ export type ParticipantKeys = {
   /**
    * An `x-api-key` that authenticates as `userId`.
    *
-   * Stable per (userId, label): a journey issues one per participant and
-   * several steps reuse it, and a re-run against a surviving stack must not
-   * pile up rows.
+   * Stable per USER, never per label. Every journey seeds its own
+   * participants -- the fixture addresses carry the journey id -- so two
+   * scenarios asking for "the seeker" mean two different people, and a
+   * credential cached under the role handed the second journey the first
+   * journey's identity. The route then answered
+   * SOURCE_ITEM_NOT_OWNED_BY_ACTOR, which reads as a product bug.
    */
   issueFor: (userId: string, label: string) => Promise<string>;
 };
@@ -39,20 +42,11 @@ const hash = (raw: string) => createHash('sha256').update(raw).digest('base64url
 
 const PREFIX = 'sk_signals_';
 
-export function createParticipantKeys(cfg: { postgresUrl: string }): ParticipantKeys & {
-  close: () => Promise<void>;
-} {
-  const pg = new Client({ connectionString: cfg.postgresUrl });
-  let connected = false;
-  const ready = async () => {
-    if (!connected) {
-      await pg.connect();
-      connected = true;
-    }
-    return pg;
-  };
+/** Only what this needs from a pg client, so the rules above are testable. */
+export type Query = <R>(sql: string, params: unknown[]) => Promise<{ rowCount: number; rows: R[] }>;
 
-  // Issued keys, by row id. The raw key is never readable back out of the
+export function participantKeys(query: Query): ParticipantKeys {
+  // Issued keys, by USER id. The raw key is never readable back out of the
   // table (only its hash is stored), so a second issueFor for the same
   // participant has to return the SAME string rather than mint a second one
   // whose row the ON CONFLICT would then discard -- which would hand back a
@@ -61,18 +55,20 @@ export function createParticipantKeys(cfg: { postgresUrl: string }): Participant
 
   return {
     async issueFor(userId, label) {
-      const id = `key_journey_${label}`;
-      const cached = issued.get(id);
+      const cached = issued.get(userId);
       if (cached) return cached;
 
+      // The row id is the user's, not the label's. The label only names the
+      // row for anyone reading the table.
+      const id = `key_journey_${userId}`;
+
       const raw = `${PREFIX}${label}_${randomBytes(12).toString('hex')}`;
-      const db = await ready();
 
       // Selected FROM "user" rather than naming the id in VALUES: a user row
       // that does not exist would otherwise fail on apikey_user_id_user_id_fk
       // with a constraint name, and the real problem -- this participant has
       // never logged in / was never created locally -- deserves a sentence.
-      const res = await db.query(
+      const res = await query(
         `INSERT INTO "apikey" (id, name, key, user_id, reference_id, config_id,
                                start, prefix, enabled, rate_limit_enabled,
                                created_at, updated_at)
@@ -85,7 +81,7 @@ export function createParticipantKeys(cfg: { postgresUrl: string }): Participant
       );
 
       if (res.rowCount === 0) {
-        const found = await db.query<{ count: string }>(
+        const found = await query<{ count: string }>(
           'SELECT count(*) FROM "user" WHERE id = $1',
           [userId],
         );
@@ -97,15 +93,34 @@ export function createParticipantKeys(cfg: { postgresUrl: string }): Participant
           );
         }
         throw new Error(
-          `STEP_FAILED: an api-key row "${id}" already exists from an earlier run and its ` +
-            `raw key cannot be read back. Take the stack down and re-run.`,
+          `STEP_FAILED: an api-key row for "${userId}" already exists from an earlier run ` +
+            `and its raw key cannot be read back. Take the stack down and re-run.`,
         );
       }
 
-      issued.set(id, raw);
+      issued.set(userId, raw);
       return raw;
     },
+  };
+}
 
+export function createParticipantKeys(cfg: { postgresUrl: string }): ParticipantKeys & {
+  close: () => Promise<void>;
+} {
+  const pg = new Client({ connectionString: cfg.postgresUrl });
+  let connected = false;
+
+  const query: Query = async (sql, params) => {
+    if (!connected) {
+      await pg.connect();
+      connected = true;
+    }
+    const res = await pg.query(sql, params);
+    return { rowCount: res.rowCount ?? 0, rows: res.rows };
+  };
+
+  return {
+    ...participantKeys(query),
     async close() {
       if (connected) await pg.end();
     },
