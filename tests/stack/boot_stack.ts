@@ -27,6 +27,7 @@ import { grantSearchCallerKey } from '../../src/seed/search_api_key.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
+import { createParticipantKeys } from '../../src/env/participant_keys.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 
@@ -36,6 +37,7 @@ export type BootedStack = {
   seeded: SeedResult;
   probe: ReturnType<typeof createIngestProbe>;
   notifications: ReturnType<typeof createNotificationProbe>;
+  keys: ReturnType<typeof createParticipantKeys>;
   target: TargetSchemas;
   targetId: string;
   digests: Record<string, string>;
@@ -188,6 +190,11 @@ async function seedBootedStack(
   // Same Redis, different keys: notification-service shares the stack's
   // instance and writes its jobs to plain lists.
   const notifications = createNotificationProbe({ redisUrl: env.endpoints.redisUrl });
+  // Lets a step act AS a participant rather than as the aggregator holding
+  // the service key. Three routes -- self-create, accept, reveal -- act only
+  // for the person `request.user.id` names, and no service credential stands
+  // in for them.
+  const keys = createParticipantKeys({ postgresUrl: env.endpoints.postgresUrl });
 
   return {
     provider,
@@ -195,6 +202,7 @@ async function seedBootedStack(
     seeded,
     probe,
     notifications,
+    keys,
     target,
     targetId,
     digests,
@@ -209,6 +217,7 @@ async function seedBootedStack(
       target,
       probe,
       notifications,
+      keys,
       auth: {
         apiKey: seeded.apiKey,
         actingOrgId: seeded.aggregatorOrgId,
@@ -240,5 +249,6 @@ export async function teardownStack(stack: BootedStack | undefined): Promise<voi
   }
   await stack?.probe?.close();
   await stack?.notifications?.close();
+  await stack?.keys?.close();
   await stack?.provider?.down();
 }

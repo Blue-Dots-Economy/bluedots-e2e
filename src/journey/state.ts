@@ -23,6 +23,12 @@ export type JourneyState = {
     string,
     { key: ItemKey; itemState: Record<string, unknown>; email: string; userId: string }
   >;
+  /**
+   * Accounts created WITHOUT a profile, by the domain they were registered
+   * for. The self-service create needs a person who exists and owns nothing
+   * yet; `profiles` is for people who already have one.
+   */
+  accounts?: Record<string, { userId: string; email: string }>;
   /** The action a step performed, for the step that resolves it. */
   actionId?: string;
   /** Who signed themselves up, for the step that checks they are known. */
@@ -44,7 +50,8 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   itemState: 'createProfile',
   baseline: 'createProfile',
   profiles: 'createProfile',
-  actionId: 'performApply',
+  accounts: 'registerAccount',
+  actionId: 'applyTo',
   signedUp: 'signUp',
   notificationBaseline: 'the step that triggers the notification',
   seed: 'the run',

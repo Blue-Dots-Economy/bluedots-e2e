@@ -10,10 +10,12 @@ import { onePersonOneDomain } from './onboarding/one_person_one_domain.js';
 import { profileWithoutConsentStaysHidden } from './consent/profile_without_consent_stays_hidden.js';
 import { onboardingNotifiesTheParticipant } from './notifications/onboarding_notifies_the_participant.js';
 import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
-import { editingNotifiesTheOwner } from './notifications/editing_notifies_the_owner.js';
 import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_owner.js';
 import { editedProfileReachesBrowseFeed } from './search/edited_profile_reaches_browse_feed.js';
 import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.js';
+import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
+import { aRequestHidesContactDetailsUntilAccepted } from './connections/a_request_hides_contact_details_until_accepted.js';
+import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepted_request_reveals_contact_details.js';
 
 /**
  * Every journey the suite knows about.
@@ -39,13 +41,25 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   // participant-onboarding
   participantIsNotDuplicated,
   aPersonSignsThemselvesUp,
+  aPersonCreatesTheirOwnProfile,
   // consent-and-data-disclosure
   profileWithoutConsentStaysHidden,
   onePersonOneDomain,
+  aRequestHidesContactDetailsUntilAccepted,
+  anAcceptedRequestRevealsContactDetails,
   // notifications
+  //
+  // No journey for an EDIT: dispatchItemLifecycleNotification is reached
+  // only from notifyAggregatorInit, on new-user creation, so an aggregator
+  // editing someone's profile sends them nothing. That is deliberate --
+  // create and update emails are for SELF actions, with aggregator_init
+  // replacing them when an aggregator acts -- and J13 was written asserting
+  // otherwise. It is not inverted into "no notification is sent", because
+  // an assertion that nothing happened also passes when the whole pipeline
+  // is broken, which is the one thing this suite must never do. It belongs
+  // on the self-service update path, once that exists.
   onboardingNotifiesTheParticipant,
   pausingNotifiesTheOwner,
-  editingNotifiesTheOwner,
   retiringNotifiesTheOwner,
   editedProfileReachesBrowseFeed,
 ];
