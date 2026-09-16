@@ -141,6 +141,15 @@ const TREE: RunReport = {
   startedAt: '2026-09-11 13:04 UTC',
 };
 
+/** The number on one overview card, by its label. */
+const cardValue = (html: string, label: string): string => {
+  const cards = html.slice(html.indexOf('class="cards"'), html.indexOf('class="controls"'));
+  const match = new RegExp(
+    `<div class="n">(\\d+)</div><div class="l">${label}</div>`,
+  ).exec(cards.replace(/\s*\n\s*/g, ''));
+  return match?.[1] ?? '(no such card)';
+};
+
 describe('the scenario tree', () => {
   test('opens a failed scenario and leaves a passing one collapsed', () => {
     // Whoever opens this page is triaging a failure. An all-open tree
@@ -198,6 +207,57 @@ describe('the scenario tree', () => {
 
     expect(html).toContain('href="#scenario-0"');
     expect(html).toContain('1 scenario failed');
+  });
+
+  test('does not count a refusal a step asked for as a failed request', () => {
+    // J9 asserts that a second domain is REFUSED, so its 403 is the journey
+    // passing. Counting it made a green run advertise a failed request that
+    // the page then gave no way to find, because request detail only
+    // renders inside failed steps.
+    const refusal: HttpEntryView = { ...failing, status: 403, step: 'J9 — Refused it' };
+    const html = renderHtml({
+      ...TREE,
+      journeys: [
+        {
+          ...J2,
+          status: 'passed',
+          steps: [{ label: 'Refused it', status: 'passed', durationMs: 5, http: [refusal] }],
+        },
+      ],
+      http: [refusal],
+    });
+    expect(cardValue(html, 'Failed requests')).toBe('0');
+  });
+
+  test('still counts an error inside a step that failed', () => {
+    const html = renderHtml({
+      ...TREE,
+      journeys: [
+        {
+          ...J2,
+          steps: [{ label: 'Tried it', status: 'failed', durationMs: 5, http: [failing] }],
+        },
+      ],
+      http: [failing],
+    });
+    expect(cardValue(html, 'Failed requests')).toBe('1');
+  });
+
+  test('marks a refusal a step asked for, rather than painting it red', () => {
+    const refusal: HttpEntryView = { ...failing, status: 403, step: 'J9 — Refused it' };
+    const html = renderHtml({
+      ...TREE,
+      journeys: [
+        {
+          ...J2,
+          status: 'passed',
+          steps: [{ label: 'Refused it', status: 'passed', durationMs: 5, http: [refusal] }],
+        },
+      ],
+      http: [refusal],
+    });
+
+    expect(html).toContain('expected');
   });
 
   test('counts scenarios, passes, failures and skips from the tree', () => {
