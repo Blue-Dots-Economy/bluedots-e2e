@@ -30,6 +30,19 @@ export type IngestProbe = {
    * exactly the two it cannot see.
    */
   lifecycleStatus: (key: ItemKey) => Promise<string | null>;
+  /**
+   * items.item_instance_url for this key, or null when there is no row.
+   *
+   * An action body has to name the instance its TARGET lives on, and the
+   * reveal at the end of the flow compares that value against the API's own
+   * base URL before disclosing anything -- so a guessed one does not fail
+   * where it was guessed, it fails two steps later as
+   * CROSS_INSTANCE_REVEAL_NOT_SUPPORTED. Read here rather than through
+   * /api/v1/item/fetch, which scopes every query to `created_by = caller`:
+   * that route is the owner's "my profiles" list, so the counterparty's item
+   * reads as absent rather than as someone else's.
+   */
+  instanceUrl: (key: ItemKey) => Promise<string | null>;
 };
 
 export type Baseline = { lastStreamId: string; dlqLength: number };

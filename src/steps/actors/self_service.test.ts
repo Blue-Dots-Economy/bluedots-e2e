@@ -14,6 +14,7 @@ const probe = (lifecycle: string | null = 'live'): IngestProbe => ({
   pendingCount: async () => 0,
   indexedAt: async () => null,
   lifecycleStatus: async () => lifecycle,
+  instanceUrl: async () => 'http://signals:2742',
 });
 
 const target = buildTargetSchemas({
@@ -136,16 +137,13 @@ const twoProfiles = {
 };
 
 describe('applyTo', () => {
-  test('takes the target instance url from the item rather than guessing one', async () => {
+  test('names the instance the target actually lives on, rather than guessing one', async () => {
     // A guess does not fail here: it fails at the reveal, with
     // CROSS_INSTANCE_REVEAL_NOT_SUPPORTED, two steps and one subsystem away.
-    const urls: string[] = [];
+    // Read from the write model, because /item/fetch is scoped to the
+    // caller's own items and answers "absent" for a counterparty's.
     let sent: { target_item?: { item_instance_url?: string } } = {};
-    const http = (async (url: string, init?: RequestInit) => {
-      urls.push(String(url));
-      if (String(url).includes('/item/fetch')) {
-        return json({ items: [{ item_instance_url: 'http://signals:2742' }] });
-      }
+    const http = (async (_url: string, init?: RequestInit) => {
       sent = JSON.parse(String(init?.body));
       return json({ summary: { total: 1, succeeded: 1, failed: 0 }, results: [{ action_id: 'act_1' }] }, 201);
     }) as unknown as typeof fetch;
@@ -158,12 +156,11 @@ describe('applyTo', () => {
   });
 
   test('reports the bulk row error, not just the status code', async () => {
-    const http = (async (url: string) => {
-      if (String(url).includes('/item/fetch')) {
-        return json({ items: [{ item_instance_url: 'http://signals:2742' }] });
-      }
-      return json({ results: [{ status: 'error', error: 'CONSENT_REQUIRED', message: 'no consent' }] }, 422);
-    }) as unknown as typeof fetch;
+    const http = (async () =>
+      json(
+        { results: [{ status: 'error', error: 'CONSENT_REQUIRED', message: 'no consent' }] },
+        422,
+      )) as unknown as typeof fetch;
 
     await expect(
       applyTo({ action: 'apply', from: 'seeker', to: 'provider' }).run(ctx(http, { ...twoProfiles })),

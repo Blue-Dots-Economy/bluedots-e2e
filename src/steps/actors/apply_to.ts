@@ -1,49 +1,11 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
-import type { ItemKey } from '../../awaiters/ingest.js';
 
 type PerformResponse = {
   summary?: { total: number; succeeded: number; failed: number };
   results?: { action_id?: string; action_status?: string; status?: string; error?: string; message?: string }[];
 };
-
-/**
- * Read the instance the item lives on, which the action body must name.
- *
- * `target_item.item_instance_url` is required and is compared against this
- * instance's own base URL before any PII is revealed, so a guessed value
- * does not fail here -- it fails four steps later with
- * CROSS_INSTANCE_REVEAL_NOT_SUPPORTED. Taken from the item itself so there
- * is nothing to guess.
- */
-async function instanceUrlOf(
-  ctx: StepContext,
-  key: ItemKey,
-  apiKey: string,
-): Promise<string> {
-  const query = new URLSearchParams({
-    item_id: key.id,
-    item_network: key.network,
-    item_domain: key.domain,
-    item_type: key.type,
-  });
-  const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/item/fetch?${query}`, {
-    headers: { 'x-api-key': apiKey },
-  });
-  if (!res.ok) {
-    throw new Error(`STEP_FAILED: fetch target item ${res.status} ${await res.text()}`);
-  }
-  const body = (await res.json()) as { items?: { item_instance_url?: string | null }[] };
-  const url = body.items?.[0]?.item_instance_url;
-  if (!url) {
-    throw new Error(
-      `STEP_FAILED: the target item carries no item_instance_url, or /item/fetch returned ` +
-        `nothing for it. Fetch is live-only, so a paused or draft target reads as absent.`,
-    );
-  }
-  return url;
-}
 
 /**
  * One participant asks another for something, as themselves.
@@ -64,6 +26,7 @@ export const applyTo = (spec: { action: string; from: string; to: string }) =>
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const keys = requireContext(ctx.keys, 'participant credentials');
+      const probe = requireContext(ctx.probe, 'ingest probe');
       const profiles = requireState(state, 'profiles');
 
       const from = profiles[spec.from];
@@ -76,7 +39,18 @@ export const applyTo = (spec: { action: string; from: string; to: string }) =>
       }
 
       const apiKey = await keys.issueFor(from.userId, `actor-${spec.from}`);
-      const targetInstance = await instanceUrlOf(ctx, to.key, apiKey);
+
+      // From the write model, not from /api/v1/item/fetch: that route scopes
+      // every query to `created_by = caller` -- it is the owner's "my
+      // profiles" list -- so the counterparty's item reads as absent there,
+      // which is not the same thing as missing.
+      const targetInstance = await probe.instanceUrl(to.key);
+      if (!targetInstance) {
+        throw new Error(
+          `STEP_FAILED: the "${spec.to}" item has no row to read an instance url from, so ` +
+            `the action body cannot name where it lives.`,
+        );
+      }
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/action/perform`, {
         method: 'POST',
