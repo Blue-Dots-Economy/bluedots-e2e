@@ -83,6 +83,53 @@ describe('renderNewman', () => {
   });
 });
 
+describe('renderNewman — a journey nobody ran', () => {
+  // purple_dot runs 14 of the 17 journeys: J9, J18 and J19 declare
+  // blue_dot only, because purple_dot's action is `connect` rather than
+  // `apply`. The job log printed all three with a tick at 0ms and counted
+  // them as executed, so the summary read "17 executed, 0 failed" for a
+  // target that verified 14. A journey nobody ran must never look like one
+  // that passed -- it is the whole failure this suite exists to catch.
+  const withSkips: RunReport = {
+    ...REPORT,
+    suites: [
+      {
+        name: 'tests/stack/journeys.stack.test.ts',
+        durationMs: 1000,
+        cases: [
+          { name: 'x > journeys > J2 — A new profile becomes findable in search', ok: true, durationMs: 700 },
+          { name: 'x > journeys > J19 — An accepted request reveals contact details', ok: true, skipped: true, durationMs: 0 },
+        ],
+      },
+    ],
+  };
+
+  test('marks it as not covered, never with a tick', () => {
+    const lines = renderNewman(withSkips).split('\n');
+    const line = lines.find((l) => l.includes('J19'))!;
+
+    expect(line).not.toContain('✓');
+    expect(line).toContain('not covered');
+  });
+
+  test('keeps it out of the executed count', () => {
+    const out = renderNewman(withSkips);
+    const journeys = out.split('\n').find((l) => l.includes('journeys') && l.includes('│'))!;
+
+    // One journey ran, not two.
+    expect(journeys).toMatch(/│\s+1 │/);
+  });
+
+  test('counts it in its own column, so the gap is visible rather than absent', () => {
+    const out = renderNewman(withSkips);
+
+    expect(out).toContain('not covered');
+    expect(out.split('\n').find((l) => l.includes('journeys') && l.includes('│'))).toMatch(
+      /1 │\s+0 │\s+1 │/,
+    );
+  });
+});
+
 test('counts requests the same way the html does', () => {
   // The console renderer had no request row and no failed-request test of
   // its own, so the job log and report.html could describe the same run
