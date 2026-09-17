@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] }
+  },
+  // scripts/ and both vitest configs were outside the program, so the
+  // per-PR gate never typechecked render_report.ts -- the step that
+  // produces the evidence a release decision reads. A type error there
+  // surfaced only at the end of a 60-minute run.
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "journeys/**/*.ts",
+    "vitest.config.ts",
+    "vitest.stack.config.ts"
+  ]
+}
