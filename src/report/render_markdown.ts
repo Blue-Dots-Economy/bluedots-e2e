@@ -52,7 +52,11 @@ export function renderMarkdown(report: RunReport): string {
   const cases = report.suites.flatMap((s) => s.cases);
   const journeys = report.journeys ?? [];
   const http = report.http ?? [];
-  const failedHttp = failedRequests(http);
+  // Same rule as the page: an error inside a step that PASSED is that step
+  // working, not a failure. J9 asserts a refusal, so its 403 is the point.
+  const failedHttp = journeys.flatMap((j) =>
+    j.steps.filter((s) => s.status !== 'passed').flatMap((s) => failedRequests(s.http)),
+  );
   const failedCases = cases.filter((c) => !c.ok);
   const ok = failedCases.length === 0;
   const totalMs = report.suites.reduce((sum, s) => sum + s.durationMs, 0);

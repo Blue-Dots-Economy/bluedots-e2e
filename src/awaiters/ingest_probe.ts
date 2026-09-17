@@ -88,6 +88,30 @@ export function createIngestProbe(cfg: ProbeConfig): IngestProbe & {
       return rows[0]?.indexed_at ?? null;
     },
 
+    async lifecycleStatus(key: ItemKey) {
+      const client = await pgReady();
+      const { rows } = await client.query<{ lifecycle_status: string }>(
+        `SELECT lifecycle_status FROM items
+          WHERE item_network = $1 AND item_domain = $2
+            AND item_type = $3 AND item_id = $4
+          LIMIT 1`,
+        [key.network, key.domain, key.type, key.id],
+      );
+      return rows[0]?.lifecycle_status ?? null;
+    },
+
+    async instanceUrl(key: ItemKey) {
+      const client = await pgReady();
+      const { rows } = await client.query<{ item_instance_url: string }>(
+        `SELECT item_instance_url FROM items
+          WHERE item_network = $1 AND item_domain = $2
+            AND item_type = $3 AND item_id = $4
+          LIMIT 1`,
+        [key.network, key.domain, key.type, key.id],
+      );
+      return rows[0]?.item_instance_url ?? null;
+    },
+
     async close() {
       redis.disconnect();
       if (connected) await pg.end();

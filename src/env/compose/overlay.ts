@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
-import { KEYCLOAK_ISSUER } from './stack_env.js';
+import { KEYCLOAK_ISSUER, NOTIFICATION_PORT } from './stack_env.js';
 import { resetFor } from './base_services.js';
 
 /**
@@ -26,6 +26,8 @@ export function renderOverlay(opts: {
   realmDir?: string;
   /** Directory holding the stub embedder source, when embedder is 'stub'. */
   stubDir?: string;
+  /** Directory holding the generated internal-secrets.json. */
+  notificationSecretsDir?: string;
   /**
    * Extra env for the search services. Exists for the negative controls,
    * which need to break ingestion deliberately -- e.g. pointing the worker
@@ -40,7 +42,7 @@ export function renderOverlay(opts: {
    */
   embedder?: 'tei' | 'stub';
 }): string {
-  const { target, digests, timing, aggregatorRoot, realmDir } = opts;
+  const { target, digests, timing, aggregatorRoot, realmDir, notificationSecretsDir } = opts;
 
   // Mount the target DIRECTORY, not the single network.json.
   // loadConsentConfigs reads consent.json from dirname(NETWORK_CONFIG_LOCAL_FILE),
@@ -134,6 +136,41 @@ ${reset('keycloak')}
       : ''
   }
 
+  # NOT in the base compose -- signals-dpg's local-setup does not run it,
+  # which is why getNotificationClient() returned undefined and the whole
+  # notification pipeline was unassertable rather than merely untested.
+  # Defined here in full rather than overridden.
+  #
+  # No published port: signals-api reaches it over the compose network, and
+  # the harness asserts on the Redis queue it writes to rather than on HTTP.
+  # Delivery itself needs SES or Gmail credentials, so a hermetic run can
+  # verify the hop and the queued job, never the inbox.
+  notification-service:
+    image: ghcr.io/blue-dots-economy/notification-service@${digests['notification-service']}
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: "${NOTIFICATION_PORT}"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: \${REDIS_PASSWORD}
+      INTERNAL_SECRETS_JSON: /app/config/internal-secrets.json
+      # Logs the recipient of every send. The worker has no transport
+      # configured, so a job fails after this line -- the log is the only
+      # place the intended recipient appears.
+      MAIL_LOG: "true"
+    volumes:
+      - ${notificationSecretsDir ?? '/tmp'}:/app/config:ro
+    healthcheck:
+      # /openapi.json is the only unauthenticated route; everything else is
+      # behind the HMAC preHandler and would answer 401 forever.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${NOTIFICATION_PORT}/openapi.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   # One block on every path. The fixed name tei-embeddings is global to
   # the docker daemon, so the default (real TEI) path -- the one CI takes
   # -- collided with any other stack running an embedder. The stub adds
@@ -182,6 +219,32 @@ ${reset('signals-bootstrap')}
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json
+      # Declared HERE, not merely in the .env file. An env_file feeds
+      # compose-file interpolation; it does not reach the container. The
+      # base compose passes neither of these groups to signals-api, so the
+      # API ran with both unset and said so only in a level-40 log line:
+      #
+      #   "signals-search is not configured (SIGNALS_SEARCH_URL/
+      #    SIGNALS_SEARCH_API_KEY unset)"
+      #
+      # The discover BFF falls back to a native distance/recency query when
+      # that happens, so the browse-feed journeys passed while never
+      # crossing into signals-search at all -- green, and proving less than
+      # they claimed. Same shape as the KEYCLOAK_REALM bug this file
+      # already carries a note about.
+      SIGNALS_SEARCH_URL: http://signals-search-api:3100
+      SIGNALS_SEARCH_API_KEY: \${SIGNALS_SEARCH_API_KEY}
+      # And without all three of these getNotificationClient() returns
+      # undefined, so the API sends nothing and logs nothing -- which is
+      # exactly what the notification journeys saw.
+      NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
+      NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
+      NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
+      # Both required by resolveNotifierConfig, which returns null without
+      # logging when either is missing -- the reason the first run with a
+      # notification client still sent nothing at all.
+      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
+      FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
 
@@ -203,6 +266,32 @@ ${reset('signals-api')}
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json
+      # Declared HERE, not merely in the .env file. An env_file feeds
+      # compose-file interpolation; it does not reach the container. The
+      # base compose passes neither of these groups to signals-api, so the
+      # API ran with both unset and said so only in a level-40 log line:
+      #
+      #   "signals-search is not configured (SIGNALS_SEARCH_URL/
+      #    SIGNALS_SEARCH_API_KEY unset)"
+      #
+      # The discover BFF falls back to a native distance/recency query when
+      # that happens, so the browse-feed journeys passed while never
+      # crossing into signals-search at all -- green, and proving less than
+      # they claimed. Same shape as the KEYCLOAK_REALM bug this file
+      # already carries a note about.
+      SIGNALS_SEARCH_URL: http://signals-search-api:3100
+      SIGNALS_SEARCH_API_KEY: \${SIGNALS_SEARCH_API_KEY}
+      # And without all three of these getNotificationClient() returns
+      # undefined, so the API sends nothing and logs nothing -- which is
+      # exactly what the notification journeys saw.
+      NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
+      NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
+      NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
+      # Both required by resolveNotifierConfig, which returns null without
+      # logging when either is missing -- the reason the first run with a
+      # notification client still sent nothing at all.
+      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
+      FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
 

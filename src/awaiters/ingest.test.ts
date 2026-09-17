@@ -9,6 +9,8 @@ function probeOf(over: Partial<IngestProbe> = {}): IngestProbe {
     groupLastDeliveredId: async () => '1-0',
     pendingCount: async () => 0,
     indexedAt: async () => null,
+    lifecycleStatus: async () => 'live',
+  instanceUrl: async () => 'http://signals:2742',
     ...over,
   };
 }
@@ -74,6 +76,8 @@ describe('awaitItemIndexed', () => {
       lastStreamId: async () => '2-0',
       groupLastDeliveredId: async () => '2-0',
       indexedAt: async () => null,
+    lifecycleStatus: async () => 'live',
+  instanceUrl: async () => 'http://signals:2742',
     });
 
     await expect(

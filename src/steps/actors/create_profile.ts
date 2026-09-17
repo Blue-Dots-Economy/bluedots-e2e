@@ -4,6 +4,7 @@ import type { JourneyState } from '../../journey/state.js';
 import { buildUpsertBody, extractItemKey, ADULT_AGE } from '../request_bodies.js';
 import { buildItemState } from '../../fixtures/item_state.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
+import { captureNotificationBaseline } from '../../awaiters/notification.js';
 
 /**
  * Create a profile that is actually searchable.
@@ -16,7 +17,20 @@ import { captureBaseline } from '../../awaiters/ingest.js';
  * advanced" and "the dead-letter stream is unchanged" have a reference
  * point that predates the event.
  */
-export const createProfile = (spec: { as: string }) =>
+export const createProfile = (spec: {
+  as: string;
+  /**
+   * Omit consent. The domain's go_live_required decides what that means --
+   * on a consent_required domain the item commits `draft`, with a 200.
+   */
+  withoutConsent?: boolean;
+  /**
+   * Reuse the address of a profile this journey already created, so the
+   * upsert adds a profile to that participant instead of onboarding a new
+   * one. The route calls this the insert_item path.
+   */
+  asParticipantOf?: string;
+}) =>
   step({
     // Named for the domain it acts as. blue_dot declares provider and
     // service_provider as well, and in a design where the label IS the
@@ -28,7 +42,11 @@ export const createProfile = (spec: { as: string }) =>
     // "Created a service_provider profile" would throw at module load and
     // take the suite with it -- on the very domain this label was written
     // for.
-    label: `Created a ${spec.as.replace(/_/g, ' ')} profile`,
+    label: spec.withoutConsent
+      ? `Created a ${spec.as.replace(/_/g, ' ')} profile without accepting consent`
+      : spec.asParticipantOf
+        ? `Added a ${spec.as.replace(/_/g, ' ')} profile to the same participant`
+        : `Created a ${spec.as.replace(/_/g, ' ')} profile`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const auth = requireContext(ctx.auth, 'authentication');
@@ -36,6 +54,15 @@ export const createProfile = (spec: { as: string }) =>
       const probe = requireContext(ctx.probe, 'ingest probe');
 
       state.baseline = await captureBaseline(probe);
+
+      // Taken before the write, like the ingest baseline and for the same
+      // reason: seeding sends mail of its own, so only a job absent from
+      // this set was caused by the step under test. Skipped where the
+      // environment runs no notification-service -- a journey that needs
+      // one is NOT COVERED there.
+      if (ctx.notifications) {
+        state.notificationBaseline = await captureNotificationBaseline(ctx.notifications);
+      }
 
       // Resolved from the domain this step acts as, not from whatever
       // domain the spec pinned: the two diverging is how a provider
@@ -55,6 +82,24 @@ export const createProfile = (spec: { as: string }) =>
       // Kept so the search step can isolate THIS item: filters target
       // item_state.<field>, never item_id.
       state.itemState = itemState;
+
+      // Unique per RUN and per DOMAIN, and reproducible from the seed. The
+      // upsert is keyed on the address, so a fixed one would update the
+      // previous run's participant; a clock-derived one made JOURNEY_SEED
+      // reproduce the fixture but not the participant. The domain is in it
+      // because an action journey creates a seeker AND a provider, and one
+      // address between them would make them the same person.
+      const existing = spec.asParticipantOf
+        ? requireState(state, 'profiles')[spec.asParticipantOf]
+        : undefined;
+      if (spec.asParticipantOf && !existing) {
+        throw new Error(
+          `STEP_FAILED: this step joins the "${spec.asParticipantOf}" participant, and ` +
+            `this journey has not created one.`,
+        );
+      }
+      const email =
+        existing?.email ?? `journey-${spec.as}-${requireState(state, 'seed')}@example.test`;
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/admin/participant`, {
         method: 'POST',
@@ -77,7 +122,8 @@ export const createProfile = (spec: { as: string }) =>
             // run's participant; a clock-derived one made JOURNEY_SEED
             // reproduce the fixture but not the participant, which is most
             // of what a replay is for.
-            email: `journey-${spec.as}-${requireState(state, 'seed')}@example.test`,
+            email,
+            ...(spec.withoutConsent ? { withoutConsent: true } : {}),
           }),
         ),
       });
@@ -85,8 +131,22 @@ export const createProfile = (spec: { as: string }) =>
       if (!res.ok) {
         throw new Error(`STEP_FAILED: upsert ${res.status} ${await res.text()}`);
       }
-      state.itemKey = extractItemKey(
-        (await res.json()) as Parameters<typeof extractItemKey>[0],
-      );
+      // requireLive: false when consent was withheld on purpose -- the item
+      // is SUPPOSED to be draft there, and extractItemKey's live check would
+      // report that correct outcome as a failure.
+      const created = (await res.json()) as Parameters<typeof extractItemKey>[0] & {
+        user_id?: string;
+      };
+      const key = extractItemKey(created, { requireLive: !spec.withoutConsent });
+      state.itemKey = key;
+      // Kept by domain as well, so an action journey can name which of its
+      // two profiles a later step means.
+      // user_id as well as the address: signals-dpg keys its notification
+      // dedupe on the OWNER, not on the recipient, so this is what makes a
+      // queued notification attributable to this profile.
+      state.profiles = {
+        ...state.profiles,
+        [spec.as]: { key, itemState, email, userId: created.user_id ?? '' },
+      };
     },
   });

@@ -47,7 +47,12 @@ export const SERVICE_REGISTRY = {
      * publishes no `:develop` at all.
      */
     defaultTag: 'main',
-    boots: false,
+    /**
+     * Booted since the notification journeys: signals-dpg's client is
+     * undefined without an endpoint, so with the service absent the whole
+     * pipeline was unassertable rather than merely untested.
+     */
+    boots: true,
     /**
      * Publishes no openapi.json. Recorded as null rather than omitted, so
      * nobody "fixes" the gap by vendoring a hand-written spec that would

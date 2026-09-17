@@ -41,17 +41,58 @@ describe('renderMarkdown', () => {
   });
 
   test('puts the counts in one table row, as the report page does', () => {
+    const erroring = {
+      step: 'J3 — Tried it',
+      method: 'POST',
+      url: 'http://x/b',
+      status: 400,
+      durationMs: 1,
+      requestHeaders: {},
+    };
     const md = renderMarkdown({
       ...PASSING,
-      journeys: [J2_PASS, { ...J2_PASS, id: 'J3', status: 'skipped' }],
+      journeys: [
+        J2_PASS,
+        {
+          ...J2_PASS,
+          id: 'J3',
+          status: 'failed',
+          steps: [{ label: 'Tried it', status: 'failed', durationMs: 1, http: [erroring] }],
+        },
+      ],
       http: [
         { step: null, method: 'POST', url: 'http://x/a', status: 200, durationMs: 1, requestHeaders: {} },
-        { step: null, method: 'POST', url: 'http://x/b', status: 400, durationMs: 1, requestHeaders: {} },
+        erroring,
       ],
     });
 
     expect(md).toContain('| Scenarios | Passed | Failed | Skipped | Checks | Requests | Failed requests |');
-    expect(md).toContain('| 2 | 1 | 0 | 1 | 1 | 2 | 1 |');
+    expect(md).toContain('| 2 | 1 | 1 | 0 | 1 | 2 | 1 |');
+  });
+
+  test('does not count an error a passing step asked for', () => {
+    // The page and this table have to agree, or one run gets described two
+    // ways. J9's 403 is the journey working.
+    const refusal = {
+      step: 'J9 — Refused it',
+      method: 'POST',
+      url: 'http://x/refused',
+      status: 403,
+      durationMs: 1,
+      requestHeaders: {},
+    };
+    const md = renderMarkdown({
+      ...PASSING,
+      journeys: [
+        {
+          ...J2_PASS,
+          steps: [{ label: 'Refused it', status: 'passed', durationMs: 1, http: [refusal] }],
+        },
+      ],
+      http: [refusal],
+    });
+
+    expect(md).toContain('| 1 | 1 | 0 | 0 | 1 | 1 | 0 |');
   });
 
   test('names the duration and when the run happened', () => {

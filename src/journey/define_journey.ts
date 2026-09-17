@@ -23,6 +23,20 @@ export type StepContext = {
   target?: import('../targets/target_schemas.js').TargetSchemas;
   /** Present only where the environment offers redis + postgres. */
   probe?: import('../awaiters/ingest.js').IngestProbe;
+  /**
+   * Reads the queues notification-service writes to. Present only where the
+   * environment runs it -- a journey asserting a notification reports NOT
+   * COVERED elsewhere rather than asserting something weaker.
+   */
+  notifications?: import('../awaiters/notification.js').NotificationProbe;
+  /**
+   * Mints a credential that authenticates AS a participant. Present only
+   * where the environment offers postgres -- a journey where a person acts
+   * for themselves (creates their own profile, accepts a request, views the
+   * contact details they were granted) cannot be faked with the aggregator's
+   * service key, so it reports NOT COVERED elsewhere.
+   */
+  keys?: import('../env/participant_keys.js').ParticipantKeys;
   auth?: { apiKey: string; actingOrgId: string; participantToken: string };
 };
 

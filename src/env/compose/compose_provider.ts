@@ -2,7 +2,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { EnvironmentContext, EnvironmentProvider } from '../provider.js';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
-import { buildStackEnv, renderEnvFile } from './stack_env.js';
+import {
+  buildStackEnv,
+  renderEnvFile,
+  NOTIFICATION_KEY_ID,
+  NOTIFICATION_SECRET,
+} from './stack_env.js';
 import { renderOverlay } from './overlay.js';
 import { assertCoversBaseServices } from './base_services.js';
 import { composeArgs, projectName } from './compose_command.js';
@@ -155,6 +160,16 @@ export class ComposeProvider implements EnvironmentProvider {
       );
     }
 
+    // notification-service reads its HMAC secrets from a mounted file, and
+    // signals-dpg signs with the matching pair from stack_env. Generated
+    // from one source so the two halves cannot drift into a 401 that reads
+    // like the service being down.
+    const notificationSecretsDir = join(this.deps.runDir, 'notification');
+    await this.deps.writeFile(
+      join(notificationSecretsDir, 'internal-secrets.json'),
+      JSON.stringify({ [NOTIFICATION_KEY_ID]: { secret: NOTIFICATION_SECRET } }, null, 2),
+    );
+
     await this.deps.writeFile(this.envFile, renderEnvFile(env));
     await this.deps.writeFile(
       this.overlayFile,
@@ -167,6 +182,7 @@ export class ComposeProvider implements EnvironmentProvider {
         searchOverrides: this.deps.searchOverrides,
         embedder: this.deps.embedder,
         stubDir,
+        notificationSecretsDir,
       }),
     );
 
@@ -245,6 +261,20 @@ export class ComposeProvider implements EnvironmentProvider {
     return this.deps.run(
       this.args(['run', '--rm', '--no-deps', 'signals-bootstrap', ...command]),
     );
+  }
+
+  /**
+   * Every service's log, while the containers still exist.
+   *
+   * The workflow's triage step runs after the suite process has ended, and
+   * the suite tears its stack down in afterAll -- so by the time that step
+   * ran, `docker compose ls` was empty and the bundle captured a header row
+   * and nothing else. A failure whose cause is in a service log was
+   * therefore undiagnosable from the artifact, which is the one thing the
+   * bundle exists for.
+   */
+  async logs(tail = 400): Promise<string> {
+    return this.deps.run(this.args(['logs', '--no-color', '--timestamps', '--tail', String(tail)]));
   }
 
   async down(): Promise<void> {

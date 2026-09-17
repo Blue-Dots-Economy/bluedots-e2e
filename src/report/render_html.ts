@@ -91,8 +91,13 @@ function statusClass(h: HttpEntryView): string {
   return `s${Math.floor(h.status / 100)}`;
 }
 
-function renderHttp(h: HttpEntryView): string {
-  const failed = isFailedRequest(h);
+function renderHttp(h: HttpEntryView, expected = false): string {
+  // A step that PASSED got the response it wanted, whatever the status. J9
+  // asserts that a second domain is REFUSED, so its 403 is the journey
+  // working -- painting it red made a green run advertise a failure the
+  // page then gave no way to find, since request detail only rendered
+  // inside failed steps.
+  const failed = isFailedRequest(h) && !expected;
   const detail = [
     Object.keys(h.requestHeaders).length
       ? `<div><div class="blk-label">Request headers</div>${headerTable(h.requestHeaders)}</div>`
@@ -109,7 +114,8 @@ function renderHttp(h: HttpEntryView): string {
                 <div class="http-head${failed ? ' err' : ''}">
                   <span class="method ${escape(h.method.toLowerCase())}">${escape(h.method)}</span>
                   <span class="http-url" title="${escape(h.url)}">${escape(h.url)}</span>
-                  <span class="http-status ${statusClass(h)}">${h.error || h.status === null ? 'ERR' : String(h.status)}</span>
+                  <span class="http-status ${expected ? 's2' : statusClass(h)}">${h.error || h.status === null ? 'ERR' : String(h.status)}</span>
+                  ${expected && isFailedRequest(h) ? '<span class="expected">expected</span>' : ''}
                   <span class="http-dur">${duration(h.durationMs)}</span>
                 </div>
                 ${detail ? `<div class="http-detail">${detail}</div>` : ''}
@@ -131,7 +137,7 @@ function renderStep(step: StepView): string {
   const inner =
     (step.error ? `<div class="s-error">${escape(step.error)}</div>` : '') +
     (step.http.length
-      ? step.http.map(renderHttp).join('')
+      ? step.http.map((h) => renderHttp(h, step.status === 'passed')).join('')
       : `<div class="s-empty">${
           step.status === 'not-reached'
             ? 'The run stopped before reaching this step.'
@@ -252,7 +258,16 @@ export function renderHtml(report: RunReport): string {
   const failedCases = cases.filter((c) => !c.ok);
   const ok = failedCases.length === 0;
   const http = report.http ?? [];
-  const failedHttp = failedRequests(http);
+  // Counted from the tree, not from the flat list: only an error inside a
+  // step that did NOT pass is a failure. An error a passing step asked for
+  // is that step working.
+  const stepsOf = (j: JourneyView) => j.steps;
+  const failedHttp = (report.journeys ?? []).flatMap((j) =>
+    stepsOf(j)
+      .filter((s) => s.status !== 'passed')
+      .flatMap((s) => failedRequests(s.http)),
+  );
+  const unattributedFailures = failedRequests(report.orphanHttp ?? []);
   const totalMs = report.suites.reduce((sum, s) => sum + s.durationMs, 0);
 
   const journeys = report.journeys;
@@ -457,6 +472,7 @@ summary.s-summary::-webkit-details-marker{display:none}
 .http-detail{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 .http-detail .blk-label{font-size:10.5px;font-weight:700;letter-spacing:0.06em;color:var(--muted);text-transform:uppercase;margin-bottom:5px}
 .http-detail pre{margin:0;background:var(--bg);border:1px solid var(--line-2);border-radius:7px;padding:10px 12px;font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.expected{font-size:10.5px;font-weight:700;letter-spacing:0.04em;color:var(--muted);background:var(--line-2);border-radius:999px;padding:2px 8px;text-transform:uppercase}
 .trunc-note{font-size:11px;color:var(--muted-2);font-style:italic;margin-top:4px}
 .hdr-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
 .hdr-table td{padding:3px 8px;border-bottom:1px solid var(--line-2);color:var(--ink-2)}
@@ -513,7 +529,7 @@ summary.s-summary::-webkit-details-marker{display:none}
     ${card(counts.skipped, 'Skipped')}
     ${card(cases.length, 'Checks')}
     ${card(http.length, 'Requests')}
-    ${card(failedHttp.length, 'Failed requests', 'bad')}
+    ${card(failedHttp.length + unattributedFailures.length, 'Failed requests', 'bad')}
   </div>
 ${failSummary}
   <div class="controls">

@@ -8,6 +8,46 @@ type SearchResponse = {
   message?: { items?: SearchItem[]; meta?: { total?: number } };
 };
 
+/**
+ * Ask search what it holds for this item, and on what field it can be
+ * isolated.
+ *
+ * Shared by the found and not-found assertions: both need the same answer
+ * to "which field survived indexing", and duplicating that choice is how
+ * the two drift into asserting different things.
+ */
+export async function probeSearch(ctx: StepContext): Promise<{
+  search: (filter: { field: string; value: unknown } | null) => Promise<SearchPage>;
+  key: ReturnType<typeof requireState<'itemKey'>>;
+  written: Record<string, unknown>;
+  where: string;
+}> {
+  const auth = requireContext(ctx.auth, 'authentication');
+  const key = requireState(ctx.state, 'itemKey');
+  const written = requireState(ctx.state, 'itemState');
+
+  const search = async (filter: { field: string; value: unknown } | null) => {
+    const res = await ctx.http(`${ctx.endpoints.searchApi}/v1/search`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': auth.apiKey },
+      body: JSON.stringify(buildSearchBody(key, filter)),
+    });
+
+    if (!res.ok) {
+      throw new Error(`STEP_FAILED: search ${res.status} ${await res.text()}`);
+    }
+    const body = (await res.json()) as SearchResponse;
+    return {
+      items: body.message?.items ?? [],
+      total: body.message?.meta?.total ?? body.message?.items?.length ?? 0,
+    };
+  };
+
+  return { search, key, written, where: `${key.network}/${key.domain}/${key.type}` };
+}
+
+type SearchPage = { items: SearchItem[]; total: number };
+
 /** Assert set membership, never rank position. */
 export const expectFoundInSearch = () =>
   step({
@@ -80,6 +120,34 @@ export const expectFoundInSearch = () =>
       );
     },
   });
+
+/**
+ * The field this run's item can be isolated by, asked of the read model.
+ *
+ * Exported because the browse feed needs the same answer: a domain's
+ * contact fields come back masked, so filtering on one matches nothing and
+ * reads as a broken filter rather than as a masked value. blue_dot requires
+ * name and phone and both are its contact_fields, so "the first
+ * seed-distinct field" is exactly the wrong choice there.
+ */
+export async function survivingField(
+  ctx: StepContext,
+  written: Record<string, unknown>,
+): Promise<string> {
+  const { search, key } = await probeSearch(ctx);
+  const visible = await search(null);
+  const row = visible.items.find((i) => i.item_id === key.id);
+  if (!row) {
+    throw new Error(
+      `STEP_FAILED: ${key.id} is not visible to search, so there is no way to know ` +
+        `which of its fields survived indexing.`,
+    );
+  }
+
+  const field = identifyingField(written, row.item_state ?? {});
+  if (!field) throw new Error(noSurvivingField(written, row.item_state ?? {}));
+  return field;
+}
 
 /**
  * A field that isolates THIS run's item in the index.

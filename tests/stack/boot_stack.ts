@@ -23,8 +23,11 @@ import { BOOTED_SERVICES, SERVICES } from '../../src/services/registry.js';
 import { dockerInspector } from '../../src/images/docker_inspector.js';
 import { createKcadmAdmin } from '../../src/env/kcadm.js';
 import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
+import { grantSearchCallerKey } from '../../src/seed/search_api_key.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
+import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
+import { createParticipantKeys } from '../../src/env/participant_keys.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 
@@ -33,10 +36,14 @@ export type BootedStack = {
   env: EnvironmentContext;
   seeded: SeedResult;
   probe: ReturnType<typeof createIngestProbe>;
+  notifications: ReturnType<typeof createNotificationProbe>;
+  keys: ReturnType<typeof createParticipantKeys>;
   target: TargetSchemas;
   targetId: string;
   digests: Record<string, string>;
   seed: string;
+  /** Distinguishes this stack's captured logs from another's. */
+  name: string;
   /** The env the containers actually started with, for anything that has
    * to speak to them with the same credentials. */
   stackEnv: Record<string, string>;
@@ -145,7 +152,7 @@ async function seedBootedStack(
   target: TargetSchemas,
   targetId: string,
   digests: Record<string, string>,
-  opts: { http?: typeof fetch },
+  opts: { http?: typeof fetch; name?: string },
 ): Promise<BootedStack> {
   const env = await provider.up();
   const stackEnv = buildStackEnv(resolved);
@@ -171,20 +178,36 @@ async function seedBootedStack(
     },
   );
 
+  // signals-api's own key for calling signals-search. Its value is fixed
+  // at boot in stack_env; the row can only exist now, and nothing uses it
+  // until the first discover request.
+  await grantSearchCallerKey({ exec: (svc, cmd) => provider.exec(svc, cmd) });
+
   const probe = createIngestProbe({
     redisUrl: env.endpoints.redisUrl,
     postgresUrl: env.endpoints.postgresUrl,
   });
+  // Same Redis, different keys: notification-service shares the stack's
+  // instance and writes its jobs to plain lists.
+  const notifications = createNotificationProbe({ redisUrl: env.endpoints.redisUrl });
+  // Lets a step act AS a participant rather than as the aggregator holding
+  // the service key. Three routes -- self-create, accept, reveal -- act only
+  // for the person `request.user.id` names, and no service credential stands
+  // in for them.
+  const keys = createParticipantKeys({ postgresUrl: env.endpoints.postgresUrl });
 
   return {
     provider,
     env,
     seeded,
     probe,
+    notifications,
+    keys,
     target,
     targetId,
     digests,
     seed: seedFromEnv(process.env),
+    name: opts.name ?? 'journeys',
     stackEnv,
     baseCtx: {
       clients: {},
@@ -193,6 +216,8 @@ async function seedBootedStack(
       seeded: seeded as unknown as Record<string, unknown>,
       target,
       probe,
+      notifications,
+      keys,
       auth: {
         apiKey: seeded.apiKey,
         actingOrgId: seeded.aggregatorOrgId,
@@ -202,8 +227,28 @@ async function seedBootedStack(
   };
 }
 
-/** Close the probe's connections before the containers they point at go. */
+/**
+ * Capture the logs, then close the probes, then take the stack down.
+ *
+ * The order is the point. The workflow's triage step runs after this
+ * process has exited, so anything it wants from a container is already
+ * gone -- the bundle from a failing run held a docker-ps header row and
+ * nothing else. A service log is where "did signals-dpg even call
+ * /notify" is answered, so it is captured here, while the containers
+ * still exist.
+ */
 export async function teardownStack(stack: BootedStack | undefined): Promise<void> {
+  if (stack?.provider) {
+    try {
+      await mkdir('reports', { recursive: true });
+      await writeFile(`reports/compose-logs-${stack.name}.txt`, await stack.provider.logs());
+    } catch (err) {
+      // Never let capturing evidence be the reason a run fails.
+      console.warn('could not capture compose logs:', err);
+    }
+  }
   await stack?.probe?.close();
+  await stack?.notifications?.close();
+  await stack?.keys?.close();
   await stack?.provider?.down();
 }

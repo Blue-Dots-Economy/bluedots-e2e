@@ -1,5 +1,21 @@
 import type { RunnableJourney } from '../src/journey/select.js';
 import { profileBecomesFindable } from './search/profile_becomes_findable.js';
+import { editedProfileIsReindexed } from './search/edited_profile_is_reindexed.js';
+import { profileReachesBrowseFeed } from './search/profile_reaches_browse_feed.js';
+import { browseFeedHonoursAFilter } from './search/browse_feed_honours_a_filter.js';
+import { pausedProfileLeavesSearch } from './lifecycle/paused_profile_leaves_search.js';
+import { retiredProfileLeavesSearch } from './lifecycle/retired_profile_leaves_search.js';
+import { participantIsNotDuplicated } from './onboarding/participant_is_not_duplicated.js';
+import { onePersonOneDomain } from './onboarding/one_person_one_domain.js';
+import { profileWithoutConsentStaysHidden } from './consent/profile_without_consent_stays_hidden.js';
+import { onboardingNotifiesTheParticipant } from './notifications/onboarding_notifies_the_participant.js';
+import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
+import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_owner.js';
+import { editedProfileReachesBrowseFeed } from './search/edited_profile_reaches_browse_feed.js';
+import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.js';
+import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
+import { aRequestHidesContactDetailsUntilAccepted } from './connections/a_request_hides_contact_details_until_accepted.js';
+import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepted_request_reveals_contact_details.js';
 
 /**
  * Every journey the suite knows about.
@@ -8,5 +24,42 @@ import { profileBecomesFindable } from './search/profile_becomes_findable.js';
  * boot and no new test code: the stack test iterates this list against the
  * single stack it already brought up, so the marginal cost of a journey is
  * its own assertions rather than a two-and-a-half-minute boot.
+ *
+ * Grouped by the directory the scenario lives in, which is the capability
+ * it covers. Four of the five capabilities are represented; voice-assistant
+ * has no journey because no stack this harness boots runs voice-dpg, and
+ * the evidence sheet says so rather than leaving a green run to imply it.
  */
-export const ALL_JOURNEYS: readonly RunnableJourney[] = [profileBecomesFindable];
+export const ALL_JOURNEYS: readonly RunnableJourney[] = [
+  // search-and-discovery
+  profileBecomesFindable,
+  editedProfileIsReindexed,
+  profileReachesBrowseFeed,
+  browseFeedHonoursAFilter,
+  pausedProfileLeavesSearch,
+  retiredProfileLeavesSearch,
+  // participant-onboarding
+  participantIsNotDuplicated,
+  aPersonSignsThemselvesUp,
+  aPersonCreatesTheirOwnProfile,
+  // consent-and-data-disclosure
+  profileWithoutConsentStaysHidden,
+  onePersonOneDomain,
+  aRequestHidesContactDetailsUntilAccepted,
+  anAcceptedRequestRevealsContactDetails,
+  // notifications
+  //
+  // No journey for an EDIT: dispatchItemLifecycleNotification is reached
+  // only from notifyAggregatorInit, on new-user creation, so an aggregator
+  // editing someone's profile sends them nothing. That is deliberate --
+  // create and update emails are for SELF actions, with aggregator_init
+  // replacing them when an aggregator acts -- and J13 was written asserting
+  // otherwise. It is not inverted into "no notification is sent", because
+  // an assertion that nothing happened also passes when the whole pipeline
+  // is broken, which is the one thing this suite must never do. It belongs
+  // on the self-service update path, once that exists.
+  onboardingNotifiesTheParticipant,
+  pausingNotifiesTheOwner,
+  retiringNotifiesTheOwner,
+  editedProfileReachesBrowseFeed,
+];

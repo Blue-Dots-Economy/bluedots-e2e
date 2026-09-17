@@ -10,6 +10,8 @@ const probe: IngestProbe = {
   groupLastDeliveredId: async () => '1-0',
   pendingCount: async () => 0,
   indexedAt: async () => null,
+  lifecycleStatus: async () => 'live',
+  instanceUrl: async () => 'http://signals:2742',
 };
 
 const okResponse = () =>
