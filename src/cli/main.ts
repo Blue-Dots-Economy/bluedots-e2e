@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+import { createInterface } from 'node:readline/promises';
+import { stderr, stdin, stdout } from 'node:process';
+import { parseArgs } from './args.js';
+import { coveredTargets, matrixEntries, renderTargetList, resolveSelection } from './target_selection.js';
+import { ALL_JOURNEYS } from '../../journeys/index.js';
+import { listTargets, resolveTarget } from '../targets/target_discovery.js';
+import { schemasRoot } from '../config/paths.js';
+import { imageRef, resolveDigests, resolveTags } from '../images/image_resolution.js';
+import { dockerInspector } from '../images/docker_inspector.js';
+import { SERVICES } from './args.js';
+import { BOOTED_SERVICES } from '../services/registry.js';
+import { ComposeProvider } from '../env/compose/compose_provider.js';
+import { assertBindSources } from '../env/compose/overlay.js';
+import { dockerRun } from '../env/compose/docker_runner.js';
+import { aggregatorRoot, signalsDpgRoot } from '../config/paths.js';
+
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+async function promptForTarget(targets: readonly { id: string }[]): Promise<string> {
+  const rl = createInterface({ input: stdin, output: stdout });
+  try {
+    stdout.write('Available targets:\n' + renderTargetList(targets as never));
+    const answer = await rl.question('Target (dot or dot/instance): ');
+    return answer.trim();
+  } finally {
+    rl.close();
+  }
+}
+
+async function main(argv: string[]): Promise<number> {
+  const args = parseArgs(argv);
+  const root = schemasRoot();
+  const targets = await listTargets(root);
+
+  // The matrix the release workflow builds its jobs from: which targets to
+  // verify, and what to call each job.
+  if (args.matrix) {
+    stdout.write(`${JSON.stringify(matrixEntries(targets, ALL_JOURNEYS))}\n`);
+    return 0;
+  }
+
+  if (args.list) {
+    // --covered is what the workflow asks for: the targets a journey
+    // declares, so the matrix cannot drift from the journey registry.
+    const listed = args.covered
+      ? targets.filter((t) => coveredTargets(targets, ALL_JOURNEYS).includes(t.id))
+      : targets;
+    stdout.write(renderTargetList(listed, { json: args.json }));
+    return 0;
+  }
+
+  const isCI = process.env.CI === 'true' || process.env.CI === '1';
+  let selection = resolveSelection(args, targets, { isCI });
+
+  if (selection.kind === 'prompt') {
+    const [dot, instance] = (await promptForTarget(targets)).split('/');
+    // Re-resolve with isCI: true so an unusable answer errors rather than
+    // looping back into another prompt.
+    selection = resolveSelection(
+      { dot: dot ?? null, instance: instance ?? null },
+      targets,
+      { isCI: true },
+    );
+  }
+
+  if (selection.kind !== 'selected') {
+    throw new Error('No target selected.');
+  }
+
+  const target = await resolveTarget(root, selection.dot, selection.instance);
+
+  stdout.write(
+    [
+      `target          ${target.id}`,
+      `network config  ${target.networkConfigPath}`,
+      `consent         ${target.consentPath ?? '(none)'}`,
+      `brand           ${target.brandPath ?? '(none)'}`,
+      `SERVED_DOMAINS  ${target.servedDomains}`,
+      '',
+    ].join('\n'),
+  );
+
+  // Phase 1 — resolve. Every service image is pinned to a digest before
+  // anything boots, because branch tags are mutable and a run must be able to
+  // say exactly what it verified.
+  const tags = resolveTags({ branch: args.branch, imagesFromTag: args.imagesFromTag });
+  const refs: Record<string, string> = {};
+  for (const service of SERVICES) {
+    refs[service] = imageRef(service, 'api', tags[service]);
+  }
+  // Only the services this run boots are required to resolve. A release is
+  // not always cut across all four repos -- 202608-s1-rc4 exists on
+  // signals-dpg alone -- and failing here on an image nothing starts blocks
+  // the verification that could have happened and reports nothing.
+  const digests = await resolveDigests(refs, dockerInspector, {
+    required: [...BOOTED_SERVICES],
+  });
+
+  stdout.write('\nresolved images\n');
+  for (const service of SERVICES) {
+    stdout.write(`  ${service.padEnd(22)} ${tags[service].padEnd(16)} ${digests[service]}\n`);
+  }
+
+  // Phase 2 — up. Owned by the environment provider, so phases 3-5 never
+  // learn whether a stack was booted here or already existed elsewhere.
+  const provider = new ComposeProvider(target, {
+    run: dockerRun,
+    writeFile: async (path, contents) => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, contents);
+    },
+    readRealm: async (path) => readFile(path, 'utf8'),
+    readBaseFile: async (path) => readFile(path, 'utf8'),
+    assertBindSources,
+    digests,
+    baseFile: join(signalsDpgRoot(), 'local-setup', 'docker-compose.yml'),
+    runDir: await mkdtemp(join(tmpdir(), 'journey-')),
+    aggregatorRoot: aggregatorRoot(),
+  });
+
+  stdout.write('\nbringing the stack up…\n');
+
+  // up() partially succeeds: containers, networks and volumes exist the
+  // moment compose starts them, so a throw after that -- or a Ctrl-C --
+  // leaked a stack that then collided with the next run.
+  // A signal skips finally entirely, so it needs its own path.
+  let interrupted: (() => void) | undefined;
+  const teardown = async () => {
+    if (args.keepStack) {
+      stdout.write('stack left running (--keep-stack)\n');
+      return;
+    }
+    stdout.write('tearing the stack down (pass --keep-stack to leave it up)\n');
+    await provider.down();
+  };
+
+  interrupted = () => {
+    // Honours --keep-stack like the normal path does. Ctrl-C during a run
+    // started specifically to leave the stack up used to destroy it,
+    // volumes and all -- and could fire mid-up(), racing `compose up`
+    // against `compose down -v` in one project.
+    if (args.keepStack) {
+      stdout.write('\ninterrupted — stack left running (--keep-stack)\n');
+      process.exit(130);
+    }
+    stdout.write('\ninterrupted — tearing the stack down\n');
+    void provider.down().finally(() => process.exit(130));
+  };
+  process.once('SIGINT', interrupted);
+
+  try {
+    const ctx = await provider.up();
+
+    stdout.write(
+    [
+      '',
+      'stack ready',
+      `  signals api     ${ctx.endpoints.signalsApi}`,
+      `  search api      ${ctx.endpoints.searchApi}`,
+      `  keycloak        ${ctx.endpoints.keycloak}`,
+      `  capabilities    ${ctx.capabilities.join(', ')}`,
+      `  realm changes   ${ctx.realmMutations.length ? ctx.realmMutations.join('; ') : '(none)'}`,
+      '',
+    ].join('\n'),
+    );
+
+    // Phases 3-5 arrive with #6 onward.
+    return 0;
+  } finally {
+    await teardown();
+    if (interrupted) process.off('SIGINT', interrupted);
+  }
+}
+
+main(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((err: unknown) => {
+    stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(1);
+  });

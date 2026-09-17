@@ -1,0 +1,354 @@
+import { describe, expect, test } from 'vitest';
+import { assertBindSources, renderOverlay } from './overlay.js';
+import { buildStackEnv } from './stack_env.js';
+
+const TARGET = {
+  id: 'purple_dot', dot: 'purple_dot', instance: null,
+  networkConfigPath: '/schemas/purple_dot/network.json',
+  consentPath: null, brandPath: null,
+  servedDomains: 'purple_dot/seeker',
+};
+const OPTS = {
+  target: TARGET,
+  digests: { 'signals-dpg': 'sha256:a', 'signals-search': 'sha256:b' },
+  timing: { SWEEP_INTERVAL_MS: '3600000', CACHE_TTL_SECONDS: '0', PEL_MIN_IDLE_MS: '5000' },
+};
+
+describe('renderOverlay', () => {
+  test('publishes no fixed host port', () => {
+    // The base compose publishes 5432, 5555, 8080, 8025, 2742 and 3100 for a
+    // developer running ONE stack. A harness must coexist with whatever the
+    // developer already has up -- and with a run for another target -- so
+    // every published port is ephemeral and discovered after boot.
+    const yaml = renderOverlay(OPTS);
+
+    for (const port of ['5432:', '5555:', '8080:', '8025:', '2742:', '3100:']) {
+      expect(yaml, `must not bind host ${port}`).not.toContain(`"${port}`);
+    }
+  });
+
+  test('unnames every container the enabled profiles start', () => {
+    // container_name is global to the docker daemon, not scoped to the
+    // compose project, so any service keeping its fixed name collides with
+    // a second run -- and with the developer's own stack. tei-embeddings
+    // was only reset on the stub path, which is not the path CI takes, and
+    // keycloak-init was never reset at all though seeding depends on it.
+    const yaml = renderOverlay(OPTS);
+
+    for (const service of ['tei-embeddings', 'keycloak-init']) {
+      const block = yaml.slice(yaml.indexOf(`\n  ${service}:`));
+      expect(block.slice(0, block.indexOf('\n\n')), `${service} must be unnamed`).toContain(
+        'container_name: !reset null',
+      );
+    }
+  });
+
+  test('pins the issuer keycloak mints, since the host port is ephemeral', () => {
+    // Keycloak derives iss from the request URL when no hostname is set
+    // (KC_HOSTNAME_STRICT is false in the base compose), so a token taken
+    // through the ephemeral host port carries that port in iss, while
+    // signals-api compares it byte-for-byte against KEYCLOAK_BASE_URL --
+    // which is fixed. Every such token 401s on first use.
+    const yaml = renderOverlay(OPTS);
+    const keycloak = yaml.slice(yaml.indexOf('\n  keycloak:'), yaml.indexOf('\n  tei-embeddings:'));
+
+    expect(keycloak).toContain(`KC_HOSTNAME: ${buildStackEnv(TARGET).KEYCLOAK_BASE_URL}`);
+  });
+
+  test('declares each key once per service, on every branch', () => {
+    // Compose reads a duplicate mapping key as a YAML error, not as a
+    // merge, and only says so at boot -- three minutes into a CI run. This
+    // caught exactly that: a second `environment:` under keycloak, on the
+    // aggregator branch only.
+    for (const aggregatorRoot of [undefined, '/agg']) {
+      const yaml = renderOverlay({ ...OPTS, aggregatorRoot });
+      const services = yaml.split(/^  (?=[a-z])/m).slice(1);
+
+      for (const block of services) {
+        const keys = [...block.matchAll(/^    ([a-z_]+):/gm)].map((m) => m[1]);
+        const repeated = keys.filter((k, i) => keys.indexOf(k) !== i);
+        expect(repeated, `${block.split(':')[0]} (aggregatorRoot=${aggregatorRoot})`).toEqual([]);
+      }
+    }
+  });
+
+  test('replaces the port list rather than appending to it', () => {
+    // Compose MERGES sequences by default, so without an explicit override
+    // the base file's fixed ports survive alongside the ephemeral ones.
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).toContain('ports: !override');
+  });
+
+  test('leaves the bootstrap image to the base compose build', () => {
+    // Naming an image no registry has makes compose try to pull it before
+    // falling back to build, which fails the run.
+    expect(renderOverlay(OPTS)).not.toContain('bootstrap:local');
+  });
+
+  test('pins the service images by digest', () => {
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).toContain('signals-dpg/api@sha256:a');
+    expect(yaml).toContain('signals-search@sha256:b');
+  });
+});
+
+describe('assertBindSources', () => {
+  test('accepts a path that is a real file', async () => {
+    await expect(assertBindSources([import.meta.filename])).resolves.toBeUndefined();
+  });
+
+  test('refuses a missing path rather than letting Docker invent a directory', async () => {
+    // Docker CREATES a missing bind source as an empty directory. The
+    // container then reads a directory and dies with EISDIR, far from the
+    // typo that caused it.
+    await expect(assertBindSources(['/no/such/network.json'])).rejects.toThrow(
+      /\/no\/such\/network\.json/,
+    );
+  });
+
+  test('accepts a directory where the mount is a directory', async () => {
+    // Four of the six bind sources are directories -- realms, providers,
+    // themes and the stub dir. Requiring a file for all of them meant they
+    // could not be checked at all, so they were not.
+    await expect(
+      assertBindSources([{ path: import.meta.dirname, kind: 'directory' }]),
+    ).resolves.toBeUndefined();
+  });
+
+  test('refuses a directory where a file is required', async () => {
+    await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(/not a file/);
+  });
+});
+
+describe('mailpit healthcheck', () => {
+  test('replaces the base healthcheck, which can never pass', () => {
+    // The base uses /dev/tcp/127.0.0.1/8025 -- a bash builtin. The mailpit
+    // image has sh but no bash, so CMD-SHELL can never satisfy it and the
+    // container sits permanently unhealthy. Invisible until something waits
+    // on health, which `up --wait` does.
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).toContain('mailpit:');
+    expect(yaml).toContain('healthcheck:');
+    expect(yaml).toContain('wget');
+  });
+});
+
+describe('keycloak realm', () => {
+  test('imports the prepared copy of aggregator-dpg\'s 8-client realm', () => {
+    // The export is read from aggregator-dpg but written out again after
+    // prepareRealm fixes what Keycloak cannot import, so the mount points at
+    // the run directory rather than the checkout.
+    const yaml = renderOverlay({
+      ...OPTS,
+      aggregatorRoot: '/repo/aggregator-dpg',
+      realmDir: '/run/realms',
+    });
+
+    expect(yaml).toContain('/run/realms:/opt/keycloak/data/import-template:ro');
+  });
+
+  test('renders it with aggregator\'s script, not signals\'', () => {
+    // signals' script substitutes 11 placeholders and aggregator's 19, and
+    // signals' substitutes NEITHER the realm name NOR any client secret.
+    // Rendering the aggregator export through it imports a realm literally
+    // named __KEYCLOAK_REALM__ with __*_SECRET__ for secrets.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/aggregator-dpg' });
+
+    expect(yaml).toContain('/repo/aggregator-dpg/infra/keycloak/render-realm.sh:/opt/keycloak/render-realm.sh:ro');
+  });
+
+  test('mounts aggregator\'s themes, which carry the signals login theme', () => {
+    // signals-ui in that realm sets login_theme: signals, and that theme
+    // exists only under aggregator-dpg. Its themes dir also contains otp, so
+    // it is a superset and replaces the mount rather than conflicting.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/aggregator-dpg' });
+
+    expect(yaml).toContain('/repo/aggregator-dpg/infra/keycloak/themes:/opt/keycloak/themes:ro');
+  });
+});
+
+describe('keycloak volume replacement', () => {
+  test('replaces the volume list rather than appending to it', () => {
+    // Compose appends sequences. Without !override, signals' themes and
+    // aggregator's themes both target /opt/keycloak/themes and the mounts
+    // collide.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/aggregator-dpg' });
+
+    expect(yaml).toContain('volumes: !override');
+    expect(yaml).not.toContain('../infra/keycloak/themes');
+  });
+
+  test('keeps the provider jar and the data volume the base declared', () => {
+    // !override drops everything the base listed, so anything still needed
+    // has to be restated: the OTP authenticator SPI, and the named volume
+    // Keycloak stores its dev-mode database in.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/aggregator-dpg' });
+
+    expect(yaml).toContain('/opt/keycloak/providers:ro');
+    expect(yaml).toContain('signals-keycloak-data:/opt/keycloak/data');
+  });
+});
+
+describe('keycloak container environment', () => {
+  test('passes the aggregator render script its own variables', () => {
+    // An .env file only feeds compose-file interpolation; it does not reach
+    // the container. The base compose's keycloak service passes what SIGNALS'
+    // render script needs, and aggregator's script needs more -- notably
+    // KEYCLOAK_REALM, which signals' script does not substitute at all.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/aggregator-dpg' });
+
+    for (const key of [
+      'KEYCLOAK_REALM',
+      'AGGREGATOR_API_SECRET',
+      'AGGREGATOR_PORTAL_SECRET',
+      'AGGREGATOR_BFF_SECRET',
+      'SIGNALS_API_SECRET',
+      'CAMPAIGN_MANAGER_SECRET',
+      'VOICE_DPG_SIGNALS_SECRET',
+      'SIGNALSTACK_CLIENT_SECRET',
+    ]) {
+      expect(yaml, `${key} must reach the keycloak container`).toContain(`${key}:`);
+    }
+  });
+});
+
+describe('container naming', () => {
+  test('drops the fixed container names the base compose sets', () => {
+    // container_name is global to the docker daemon, so a stale run or a
+    // second target collides with "The container name /signals-mailpit is
+    // already in use". Resetting it lets compose use project-scoped names.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/agg' });
+
+    for (const service of ['postgres', 'redis', 'keycloak', 'mailpit', 'signals-api']) {
+      expect(yaml, `${service} must not keep a fixed container_name`).toContain(
+        'container_name: !reset null',
+      );
+    }
+  });
+});
+
+describe('healthcheck budget', () => {
+  test('gives signals-api a boot budget suited to a loaded stack', () => {
+    // The image ships --interval=30s --start-period=10s --retries=3. On a
+    // machine also booting Keycloak and an emulated TEI, the API misses the
+    // 10s start period and the 30s interval makes recovery slow enough for
+    // `up --wait` to give up -- reporting unhealthy for a service that is
+    // merely slow. Polling more often over a longer window converges fast
+    // without hiding a genuine failure.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/agg' });
+
+    expect(yaml).toContain('start_period: 120s');
+    expect(yaml).toContain('interval: 3s');
+  });
+});
+
+describe('network config mount', () => {
+  test('mounts the target directory, not just network.json', () => {
+    // loadConsentConfigs reads consent.json from dirname(network config).
+    // Mounting the single file leaves that directory empty, so
+    // resolveConsentVersion returns null and consent is skipped SILENTLY --
+    // "category not configured, do not fail onboarding" -- and the profile
+    // stays draft, invisible to search, with a 200 on the way in.
+    const yaml = renderOverlay({
+      ...OPTS,
+      target: { ...TARGET, networkConfigPath: '/schemas/purple_dot/network.json' },
+    });
+
+    expect(yaml).toContain('/schemas/purple_dot:/networks:ro');
+    expect(yaml).not.toContain('/networks/network.json:ro');
+  });
+});
+
+describe('search network config mount', () => {
+  test('replaces the base network mount rather than appending to it', () => {
+    // The base compose mounts examples/schemas/<net>/network.json as a FILE
+    // at /networks/network.json for the search services. Compose appends
+    // volume lists, so without !override the base's blue_dot file wins over
+    // the target directory and search answers
+    // `404 UNSERVED_DOMAIN: purple_dot/seeker not served`.
+    const yaml = renderOverlay({ ...OPTS, aggregatorRoot: '/repo/agg' });
+
+    const searchBlocks = yaml.split('signals-search-').slice(1);
+    expect(searchBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const block of searchBlocks) {
+      expect(block).toContain('volumes: !override');
+    }
+  });
+});
+
+describe('search env overrides', () => {
+  test('lets a control break ingestion deliberately', () => {
+    // The negative controls need to disable the consumer while leaving the
+    // sweep running, which is only meaningful if it can be configured.
+    const yaml = renderOverlay({
+      ...OPTS,
+      searchOverrides: { INGEST_CONSUMER_GROUP: 'decoy', SWEEP_INTERVAL_MS: '2000' },
+    });
+
+    expect(yaml).toContain('INGEST_CONSUMER_GROUP: "decoy"');
+    expect(yaml).toContain('SWEEP_INTERVAL_MS: "2000"');
+  });
+});
+
+describe('search env key uniqueness', () => {
+  test('an override replaces a timing key rather than duplicating it', () => {
+    // Duplicate mapping keys are rejected by strict YAML with only
+    // "construct errors" to go on.
+    const yaml = renderOverlay({ ...OPTS, searchOverrides: { SWEEP_INTERVAL_MS: '2000' } });
+
+    const block = yaml.slice(yaml.indexOf('signals-search-api'), yaml.indexOf('signals-search-worker'));
+    expect(block.match(/SWEEP_INTERVAL_MS/g)).toHaveLength(1);
+    expect(block).toContain('SWEEP_INTERVAL_MS: "2000"');
+  });
+});
+
+describe('embedder selection', () => {
+  test('uses real TEI by default', () => {
+    // A 2 vCPU / 8 GB runner was shown to hold it, and its vectors are the
+    // ones production computes -- model_version feeds the ingest content
+    // hash, so a substitute corresponds to nothing deployed.
+    const yaml = renderOverlay(OPTS);
+
+    expect(yaml).not.toContain('stub-embedder');
+  });
+
+  test('swaps in the stub when asked, reusing an image already pulled', () => {
+    // The stub runs from the signals-search image, so choosing it removes
+    // the multi-GB TEI pull without adding a build.
+    const yaml = renderOverlay({ ...OPTS, embedder: 'stub' });
+
+    expect(yaml).toContain('tei-embeddings:');
+    expect(yaml).toContain('signals-search@sha256:b');
+    expect(yaml).toContain('/stub/stub_embedder.js');
+  });
+
+  test('keeps the service name, so nothing downstream has to know', () => {
+    // EMBEDDING_BASE_URL points at http://tei-embeddings:80/v1; overriding
+    // the service in place means the search config is untouched.
+    const yaml = renderOverlay({ ...OPTS, embedder: 'stub' });
+
+    // The KEY, not the string: the comment above the service explains why
+    // the name is preserved and would otherwise match its own explanation.
+    expect(yaml).not.toMatch(/^\s*EMBEDDING_BASE_URL:/m);
+  });
+});
+
+describe('bind source failures are the harness\'s own', () => {
+  test('carry a prefix, so the report cannot blame the release for them', async () => {
+    // classifyFailure reads the prefix. Without one, a wrong
+    // AGGREGATOR_DPG_PATH -- the likeliest misconfiguration on a fresh
+    // machine -- reported as a PRODUCT failure and would block the RC.
+    await expect(assertBindSources(['/no/such/network.json'])).rejects.toThrow(
+      /^BIND_SOURCE_MISSING:/,
+    );
+    await expect(
+      assertBindSources([{ path: '/no/such/dir', kind: 'directory' }]),
+    ).rejects.toThrow(/^BIND_SOURCE_MISSING:/);
+    await expect(assertBindSources([import.meta.dirname])).rejects.toThrow(
+      /^BIND_SOURCE_WRONG_KIND:/,
+    );
+  });
+});

@@ -1,0 +1,2 @@
+{ "id": "blue_dot", "display_name": "Blue Dot",
+  "domains": [ { "id": "seeker" }, { "id": "provider" } ] }

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // The CLI reads the journey registry, which lives at journeys/ beside
+    // src/ rather than inside it, so the build root is the repo root and
+    // the emitted entry point is dist/src/cli/main.js.
+    "rootDir": ".",
+    "outDir": "dist",
+    "noEmit": false,
+    "declaration": true
+  },
+  "include": ["src/**/*.ts", "journeys/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "journeys/**/*.test.ts"]
+}
