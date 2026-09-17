@@ -67,6 +67,19 @@ client secrets, database and Redis passwords — is owned by
 fixed test values for a stack that is booted fresh and never reachable
 outside its own compose network.
 
+Two guards run before the stack boots, both for ways the overlay has
+actually gone wrong. `assertCoversBaseServices` catches a service the base
+compose names that the overlay forgets to reset. `REQUIRED_CONTAINER_ENV`
+(`src/env/compose/container_env.ts`) catches the subtler one: a variable
+written into the env file, where it feeds compose-file **interpolation**
+and never reaches the container. `KEYCLOAK_REALM` and `SIGNALS_SEARCH_URL`
+both did that — each service booted clean, answered health checks, and
+said so in a single level-40 log line, and the `SIGNALS_SEARCH_URL` case
+kept the browse-feed journeys green while they never crossed into
+signals-search at all. Entries list what a service **reads**, not
+everything it is handed: add one when a variable's absence degrades the
+service silently, not for every variable the overlay sets.
+
 ## In CI
 
 `.github/workflows/journey.yml`, on `workflow_dispatch`. Give it the
