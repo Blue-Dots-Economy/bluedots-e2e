@@ -1,0 +1,45 @@
+import { checkCapabilities, type Capability } from '../env/capabilities.js';
+import type { Journey } from './define_journey.js';
+
+/** A journey plus what the environment must offer for it to mean anything. */
+export type RunnableJourney = Journey & { requires: readonly Capability[] };
+
+export type Selection = {
+  run: RunnableJourney[];
+  skipped: { id: string; reason: string }[];
+};
+
+/**
+ * Decide which journeys this run executes.
+ *
+ * Everything is accounted for: a journey is either run, or skipped with a
+ * reason the report can print. Silently dropping one would show up as a
+ * green run that covered less than it appeared to -- the failure mode the
+ * NOT COVERED block exists to prevent.
+ */
+export function selectJourneys(
+  journeys: readonly RunnableJourney[],
+  target: string,
+  capabilities: readonly Capability[],
+): Selection {
+  const run: RunnableJourney[] = [];
+  const skipped: { id: string; reason: string }[] = [];
+
+  for (const journey of journeys) {
+    if (!journey.targets.includes(target)) {
+      skipped.push({ id: journey.id, reason: `does not declare target ${target}` });
+      continue;
+    }
+    // Through checkCapabilities, not a copy of it: the filter and the
+    // wording were duplicated here, so the unit-tested code and the code
+    // that actually ran were two different pieces of code.
+    const check = checkCapabilities(journey.requires, capabilities);
+    if (!check.runnable) {
+      skipped.push({ id: journey.id, reason: check.reason });
+      continue;
+    }
+    run.push(journey);
+  }
+
+  return { run, skipped };
+}

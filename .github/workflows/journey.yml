@@ -1,4 +1,12 @@
-name: journey
+name: release verification
+
+# `journey` said nothing in the Actions list -- every run looked the same,
+# and the job read as "journey (purple_dot)" with no indication of what was
+# being verified. run-name puts the release and the target in the run title,
+# so a list of runs is scannable.
+run-name: >-
+  Verify ${{ inputs.tag || github.ref_name }} ·
+  ${{ inputs.target || 'default dot' }}
 
 # The journey suite runs on a release-candidate tag, against the exact
 # images that tag published. It cannot be a branch-protection check: a tag
@@ -10,13 +18,40 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify, e.g. 202609-s1-rc1
+        description: Release tag — the default for every service and the ref for checkouts
         required: true
-      target:
-        description: Single target (purple_dot or blue_dot/ka-dhwd); blank runs all
+      # Per-service overrides. A release is not always one tag across four
+      # repos: a fix for an issue found in rc1 ships as rc2 for that service
+      # alone, and a run should be able to say exactly which candidate of
+      # each service it verified. Blank means "use the release tag above".
+      signals_dpg_tag:
+        description: signals-dpg image tag (blank = release tag)
         required: false
-        type: choice
-        options: ['', purple_dot, blue_dot/ka-dhwd]
+      aggregator_dpg_tag:
+        description: aggregator-dpg image tag (blank = release tag)
+        required: false
+      signals_search_tag:
+        description: signals-search image tag (blank = release tag)
+        required: false
+      notification_service_tag:
+        description: notification-service image tag (blank = release tag)
+        required: false
+      # Free text, not a choice list. A `choice` is rendered when the form
+      # opens, before any job could ask the harness what exists, so its
+      # options had to be maintained by hand -- the last place a target was
+      # enumerated anywhere. Typing it instead means the schemas and the
+      # journey registry are the only things that decide what can run.
+      #
+      # A typo costs seconds, not a boot: prepare validates against
+      # `journey --matrix` and fails naming what this release does verify.
+      target:
+        description: >-
+          Dot (<dot>) or instance (<dot>/<instance>) to verify, or `all` for
+          every covered dot. A dot verifies every covered instance of it.
+          Blank uses the default dot. An unknown value fails in seconds
+          naming the ones that exist.
+        required: false
+        type: string
         default: ''
 
 # Without packages: read the ghcr pull fails as an auth error, which the
@@ -26,11 +61,103 @@ permissions:
   packages: read
 
 jobs:
-  journey:
+  # The matrix comes from the harness, not from a list kept in step with it
+  # by hand. `journey --matrix` intersects the targets the schemas define
+  # with the ones a journey declares, so adding a dot or a journey changes
+  # the matrix by itself. Each entry carries the precise target and the
+  # name to show for it. The dispatch input's `options:` above is the one
+  # copy that has to stay: GitHub renders that list when the form opens,
+  # long before any job could compute it.
+  prepare:
     runs-on: ubuntu-latest
-    # Three stack boots run sequentially (fileParallelism is off), each
-    # 80-200s locally. The 360-minute default would let a wedged run hold a
-    # runner for six hours.
+    timeout-minutes: 5
+    env:
+      # Which dot a run verifies when nothing is asked for -- including an
+      # RC tag push, which sends no inputs at all. Policy, not an
+      # enumeration: prepare validates it against `journey --matrix` like
+      # any other value, so if this dot stops being covered the run fails
+      # here naming the ones that are, rather than silently verifying
+      # nothing. Pass `all` to verify every covered dot.
+      DEFAULT_TARGET: blue_dot
+    outputs:
+      targets: ${{ steps.matrix.outputs.targets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Blue-Dots-Economy/bluedots-schemas
+          ref: main
+          path: .checkouts/bluedots-schemas
+      - id: matrix
+        env:
+          BLUEDOTS_SCHEMAS_PATH: .checkouts/bluedots-schemas
+          CHOSEN: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          discovered=$(pnpm -s journey --matrix)
+
+          # Blank means the default dot, not "everything": an RC tag push
+          # sends no inputs, and a run that quietly verifies more than was
+          # asked for costs a runner per extra dot.
+          chosen=${CHOSEN:-$DEFAULT_TARGET}
+          [ "$chosen" = "all" ] && chosen=""
+
+          if [ -n "$chosen" ]; then
+            # Matched on the precise target, the label, or the DOT, so the
+            # form can offer "blue_dot" while the run verifies
+            # blue_dot/ka-dhwd -- and naming an instance outright still
+            # works. The dot match is what keeps this working when a second
+            # instance is covered: matrixEntries relabels both to their full
+            # ids then, so neither is called "blue_dot" any more, and
+            # selecting the dot verifies every covered instance of it.
+            # An unknown choice fails here in seconds rather than in a
+            # matrix job that boots a stack before resolving anything.
+            targets=$(printf '%s' "$discovered" \
+              | jq -c --arg t "$chosen" \
+                '[.[] | select(.target == $t or .label == $t or (.target | split("/")[0]) == $t)]')
+            if [ "$targets" = "[]" ]; then
+              echo "::error::Unknown target '$chosen'. This release verifies $(printf '%s' "$discovered" | jq -c 'map(.target)') — pass one of those, a dot, or 'all'."
+              exit 1
+            fi
+          else
+            targets=$discovered
+          fi
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "verifying: $targets"
+          # In the summary too: with no choice list on the form, this is
+          # where someone finds out what they could have asked for. Split
+          # into what IS running and what is not -- a single list of every
+          # covered target reads as a run list, which it is not.
+          {
+            echo "### Targets"
+            echo
+            echo "**Verifying:**"
+            printf '%s' "$targets" | jq -r '.[] | "- `\(.target)` — job `verify \(.label)`"'
+            rest=$(jq -cn --argjson all "$discovered" --argjson sel "$targets" '$all - $sel')
+            if [ "$rest" != "[]" ]; then
+              echo
+              echo "**Not verified by this run** — covered, but not asked for. Pass \`all\`, or name one:"
+              printf '%s' "$rest" | jq -r '.[] | "- `\(.target)`"'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    # The dot, not the dot/instance: an instance is width in a job list
+    # without being what a reader scans for. matrix.target keeps the
+    # precise id for everything that resolves, seeds or names an artifact.
+    name: verify ${{ matrix.label }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    # Two stack boots run sequentially (fileParallelism is off) -- the
+    # journeys' shared stack and the negative control's -- each 80-200s
+    # locally. The 360-minute default would let a wedged run hold a runner
+    # for six hours.
     timeout-minutes: 60
     strategy:
       # One target per job, never in parallel within a job: a run boots one
@@ -38,12 +165,25 @@ jobs:
       # one target's failure still leaves the others' evidence.
       fail-fast: false
       matrix:
-        target: ${{ inputs.target && fromJSON(format('["{0}"]', inputs.target)) || fromJSON('["purple_dot","blue_dot/ka-dhwd"]') }}
+        include: ${{ fromJSON(needs.prepare.outputs.targets) }}
     env:
       # Resolved once. On dispatch, github.ref_name is the ref the run was
       # started from -- usually main -- NOT inputs.tag, so using it for the
       # checkouts would overlay main's compose while the report named the RC.
       RESOLVED_TAG: ${{ inputs.tag || github.ref_name }}
+      # Each checkout follows ITS OWN service tag, so the compose base and
+      # the realm come from the same release as the image being tested.
+      SIGNALS_DPG_REF: ${{ inputs.signals_dpg_tag || inputs.tag || github.ref_name }}
+      AGGREGATOR_DPG_REF: ${{ inputs.aggregator_dpg_tag || inputs.tag || github.ref_name }}
+      # Every free-text input reaches the shell as an environment variable,
+      # never interpolated into a `run:` body. A ${{ }} expansion is pasted
+      # into the script before bash sees it, so a value containing a quote
+      # or a semicolon would be read as syntax rather than as data.
+      MATRIX_TARGET: ${{ matrix.target }}
+      SIGNALS_DPG_TAG: ${{ inputs.signals_dpg_tag || inputs.tag || github.ref_name }}
+      AGGREGATOR_DPG_TAG: ${{ inputs.aggregator_dpg_tag || inputs.tag || github.ref_name }}
+      SIGNALS_SEARCH_TAG: ${{ inputs.signals_search_tag || inputs.tag || github.ref_name }}
+      NOTIFICATION_SERVICE_TAG: ${{ inputs.notification_service_tag || inputs.tag || github.ref_name }}
     steps:
       - name: check the release tag looks like one
         run: |
@@ -51,13 +191,57 @@ jobs:
             echo "::error::RESOLVED_TAG='$RESOLVED_TAG' is not a release tag. This workflow verifies a release candidate; it cannot do that against a branch."
             exit 1
           fi
-          # A quote in the dispatch input would otherwise break matrix
-          # evaluation with no actionable message.
-          case "${{ matrix.target }}" in
-            purple_dot|blue_dot/ka-dhwd) ;;
-            *) echo "::error::Unknown target '${{ matrix.target }}'."; exit 1 ;;
-          esac
-          echo "TARGET_SLUG=$(printf '%s' '${{ matrix.target }}' | tr '/' '-')" >> "$GITHUB_ENV"
+          # The target came from the prepare job, which validated it
+          # against the discovered set, so there is no allow-list here to
+          # fall out of step with the schemas.
+          echo "TARGET_SLUG=$(printf '%s' "$MATRIX_TARGET" | tr '/' '-')" >> "$GITHUB_ENV"
+
+      # Resolve each provider's source ref, and fail naming the repo rather
+      # than dying at actions/checkout with an opaque git error.
+      #
+      # Two things this has to get right. A tag is not always cut
+      # fleet-wide: 202608-s1-rc4 exists only on signals-dpg, and
+      # 202608-s1-rc2 and -rc3 only on signals-dpg and aggregator-dpg.
+      # And an IMAGE tag is not always a GIT tag -- CI publishes three
+      # shapes, and each maps to a different kind of ref:
+      #
+      #   202609-s1-rc1   a tag
+      #   develop         a branch head
+      #   sha-7958281     the COMMIT 7958281, not a tag of that name
+      #
+      # So `sha-` is stripped and each ref is looked up as tag, then
+      # branch, then commit.
+      - name: resolve the source ref for every pinned repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          missing=0
+          resolve() {
+            repo=$1
+            ref=${2#sha-}   # sha-7958281 is the image tag for commit 7958281
+            # Tags and branches check out by name. A commit does NOT: the
+            # registry publishes a SHORT sha and actions/checkout resolves
+            # only a full 40-character one, so it is expanded here rather
+            # than failing later with a bare git exit code 1.
+            for kind in tags heads; do
+              if gh api "repos/Blue-Dots-Economy/$repo/git/ref/$kind/$ref" >/dev/null 2>&1; then
+                echo "ok  $repo @ $ref (${kind%s})"
+                echo "${3}=$ref" >> "$GITHUB_ENV"
+                return 0
+              fi
+            done
+            full=$(gh api "repos/Blue-Dots-Economy/$repo/commits/$ref" --jq .sha 2>/dev/null || true)
+            if [ "$full" != "" ]; then
+              echo "ok  $repo @ $ref -> $full (commit)"
+              echo "${3}=$full" >> "$GITHUB_ENV"
+              return 0
+            fi
+            echo "::error::$2 does not resolve on $repo as a tag, a branch or a commit. A journey run checks out each provider at the revision its image was built from; check the tag exists there, or pick one that does."
+            missing=1
+          }
+          resolve signals-dpg    "$SIGNALS_DPG_REF"    SIGNALS_DPG_CHECKOUT
+          resolve aggregator-dpg "$AGGREGATOR_DPG_REF" AGGREGATOR_DPG_CHECKOUT
+          exit $missing
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -84,12 +268,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/signals-dpg
-          ref: ${{ env.RESOLVED_TAG }}
+          ref: ${{ env.SIGNALS_DPG_CHECKOUT }}
+          # A commit ref is not reachable by the default shallow fetch of a
+          # named ref; checkout must be able to fetch the object itself.
+          fetch-depth: 0
           path: .checkouts/Signals-DPG
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: Blue-Dots-Economy/aggregator-dpg
-          ref: ${{ env.RESOLVED_TAG }}
+          ref: ${{ env.AGGREGATOR_DPG_CHECKOUT }}
+          fetch-depth: 0
           path: .checkouts/aggregator-dpg
       # bluedots-schemas carries no tags, so main is unavoidable. The
       # resolved SHA is recorded below so a re-run stays attributable.
@@ -110,29 +298,71 @@ jobs:
           mkdir -p reports
           {
             echo "release_tag=$RESOLVED_TAG"
-            echo "target=${{ matrix.target }}"
+            echo "target=$MATRIX_TARGET"
             echo "signals_dpg_sha=$(git -C .checkouts/Signals-DPG rev-parse HEAD)"
             echo "aggregator_dpg_sha=$(git -C .checkouts/aggregator-dpg rev-parse HEAD)"
             echo "bluedots_schemas_sha=$(git -C .checkouts/bluedots-schemas rev-parse HEAD)"
+            echo "signals_dpg_ref=$SIGNALS_DPG_CHECKOUT"
+            echo "aggregator_dpg_ref=$AGGREGATOR_DPG_CHECKOUT"
+            echo "signals_dpg_tag=$SIGNALS_DPG_TAG"
+            echo "aggregator_dpg_tag=$AGGREGATOR_DPG_TAG"
+            echo "signals_search_tag=$SIGNALS_SEARCH_TAG"
+            echo "notification_service_tag=$NOTIFICATION_SERVICE_TAG"
           } | tee reports/provenance.txt
+
+      # Standard runners ship ~25 GB of toolchains this job never touches,
+      # against 14 GB free at start. The stack pulls TEI, builds a
+      # pgvector+postgis image and a full-monorepo tools image, so the
+      # margin was thin even when it held.
+      - name: reclaim runner disk
+        run: |
+          before=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          after=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          echo "reclaimed $((after - before)) GB (now ${after} GB free)"
 
       - name: capacity before boot
         run: |
-          { df -h; echo; free -m; } | tee reports/capacity-before.txt
+          { nproc; echo; lscpu | head -20; echo; df -h; echo; free -m; } \
+            | tee reports/capacity-before.txt
 
       - name: run the journey suite
+        id: suite
         env:
           SIGNALS_DPG_PATH: ${{ github.workspace }}/.checkouts/Signals-DPG
           AGGREGATOR_DPG_PATH: ${{ github.workspace }}/.checkouts/aggregator-dpg
           BLUEDOTS_SCHEMAS_PATH: ${{ github.workspace }}/.checkouts/bluedots-schemas
           JOURNEY_TARGET: ${{ matrix.target }}
           JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
+          # Empty entries are dropped by the parser, so an untouched field
+          # simply falls back to the release tag.
+          JOURNEY_IMAGE_TAGS: >-
+            signals-dpg=${{ inputs.signals_dpg_tag }},
+            aggregator-dpg=${{ inputs.aggregator_dpg_tag }},
+            signals-search=${{ inputs.signals_search_tag }},
+            notification-service=${{ inputs.notification_service_tag }}
+          # Real TEI by default; a standard runner was shown to hold it.
+          # Set to `stub` if a future runner is tighter.
+          EMBEDDER: ${{ vars.EMBEDDER || 'tei' }}
         run: pnpm test:stack
+
+      # always(), but only once there IS a run to report on. A failure
+      # before the suite -- a tag not cut fleet-wide, say -- skips the
+      # checkout and the install, so these would fail for want of
+      # dependencies and an empty reports directory, turning one clear
+      # error into three red steps and burying the one that mattered.
+      - name: render the report
+        if: always() && steps.suite.conclusion != 'skipped'
+        env:
+          JOURNEY_TARGET: ${{ matrix.target }}
+          JOURNEY_RELEASE_TAG: ${{ env.RESOLVED_TAG }}
+        run: pnpm report
 
       # A capacity failure and a regression look alike in a bare failure, so
       # capture enough to tell them apart.
       - name: triage bundle
-        if: failure()
+        if: failure() && steps.suite.conclusion != 'skipped'
         run: |
           { df -h; echo; free -m; } > reports/capacity-after.txt 2>&1 || true
           docker ps -a > reports/docker-ps.txt 2>&1 || true
@@ -145,7 +375,7 @@ jobs:
       # indistinguishable from a run that produced no evidence, which is the
       # failure this step exists to prevent.
       - name: upload reports
-        if: always()
+        if: always() && steps.suite.conclusion != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: journey-${{ env.TARGET_SLUG }}

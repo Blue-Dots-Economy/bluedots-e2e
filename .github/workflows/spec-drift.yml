@@ -1,0 +1,57 @@
+name: provider spec drift
+
+# The generated clients are the contract check: src/clients/contract.test.ts
+# asserts, at the type level, that the endpoints and fields the journeys
+# rely on still exist. `pnpm typecheck` only checks the COMMITTED clients,
+# so it catches a journey using a field the committed spec lacks -- never a
+# provider changing their spec upstream. Nothing regenerated them, so the
+# specs could drift with the first symptom being a red journey run.
+#
+# Scheduled rather than per-PR: regenerating fetches from four repositories,
+# so it needs network and it fails for reasons unrelated to the PR at hand.
+on:
+  schedule:
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: regenerate the clients from each provider
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm clients:check
+
+      - name: say what drifted
+        if: failure()
+        run: |
+          echo "::error::A provider's OpenAPI spec no longer matches the committed clients."
+          {
+            echo "## Provider spec drift"
+            echo
+            echo "A provider changed its published spec. Regenerate and review:"
+            echo
+            echo '```'
+            echo 'pnpm clients:generate'
+            echo '```'
+            echo
+            echo "The diff below is what changed. If it touches something a journey"
+            echo "asserts, contract.test.ts will fail to typecheck and name the field."
+            echo
+            echo '```diff'
+            git --no-pager diff -- src/clients/generated | head -200
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

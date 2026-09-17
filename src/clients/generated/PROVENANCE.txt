@@ -1,0 +1,3 @@
+aggregator-dpg Blue-Dots-Economy/aggregator-dpg@a8dac333f8905a09bf3f59e68d9f94729a790b3d
+signals-dpg Blue-Dots-Economy/signals-dpg@fa2f6fb55c49369a67a8559d799ccd62b2a94359
+signals-search Blue-Dots-Economy/signals-search@3746d301999efb274adf101a326706f08f81cae0

@@ -1,0 +1,34 @@
+{
+  "name": "bluedots-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "journey": "./dist/src/cli/main.js"
+  },
+  "scripts": {
+    "journey": "tsx src/cli/main.ts",
+    "test": "vitest run",
+    "test:stack": "vitest run --config vitest.stack.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "clients:generate": "tsx scripts/generate_clients.ts",
+    "clients:check": "tsx scripts/generate_clients.ts && git diff --exit-code src/clients/generated",
+    "report": "tsx scripts/render_report.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
+    "ioredis": "^6.0.0",
+    "openapi-typescript": "^7.13.0",
+    "pg": "^8.23.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
