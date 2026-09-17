@@ -219,32 +219,6 @@ ${reset('signals-bootstrap')}
     environment:
       NETWORK_CONFIG_SOURCE: local
       NETWORK_CONFIG_LOCAL_FILE: /networks/network.json
-      # Declared HERE, not merely in the .env file. An env_file feeds
-      # compose-file interpolation; it does not reach the container. The
-      # base compose passes neither of these groups to signals-api, so the
-      # API ran with both unset and said so only in a level-40 log line:
-      #
-      #   "signals-search is not configured (SIGNALS_SEARCH_URL/
-      #    SIGNALS_SEARCH_API_KEY unset)"
-      #
-      # The discover BFF falls back to a native distance/recency query when
-      # that happens, so the browse-feed journeys passed while never
-      # crossing into signals-search at all -- green, and proving less than
-      # they claimed. Same shape as the KEYCLOAK_REALM bug this file
-      # already carries a note about.
-      SIGNALS_SEARCH_URL: http://signals-search-api:3100
-      SIGNALS_SEARCH_API_KEY: \${SIGNALS_SEARCH_API_KEY}
-      # And without all three of these getNotificationClient() returns
-      # undefined, so the API sends nothing and logs nothing -- which is
-      # exactly what the notification journeys saw.
-      NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
-      NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
-      NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
-      # Both required by resolveNotifierConfig, which returns null without
-      # logging when either is missing -- the reason the first run with a
-      # notification client still sent nothing at all.
-      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
-      FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
 
