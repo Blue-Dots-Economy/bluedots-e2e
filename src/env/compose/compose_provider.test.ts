@@ -9,11 +9,34 @@ const TARGET: ResolvedTarget = {
   servedDomains: 'purple_dot/seeker',
 };
 
-function fakeDocker() {
+/**
+ * What `docker compose config --format json` renders for a stack whose
+ * overlay is correct. The provider asserts against this before it boots,
+ * so a fake that answered '' would fail the guard rather than the test.
+ */
+const RENDERED_CONFIG = JSON.stringify({
+  services: {
+    'signals-api': {
+      environment: {
+        KEYCLOAK_REALM: 'bluedots',
+        SIGNALS_SEARCH_URL: 'http://signals-search-api:3100',
+        SIGNALS_SEARCH_API_KEY: 'sk_x',
+        NOTIFICATION_SERVICE_ENDPOINT: 'http://notification-service:4000',
+        NOTIFICATION_SERVICE_KEY_ID: 'k',
+        NOTIFICATION_SERVICE_SECRET: 's',
+        NOTIFICATION_FROM_EMAIL: 'no-reply@journey.local',
+        FRONTEND_BASE_URL: 'http://localhost:3000',
+      },
+    },
+  },
+});
+
+function fakeDocker(config: string = RENDERED_CONFIG) {
   const calls: string[][] = [];
   let port = 55000;
   const run = async (args: string[]) => {
     calls.push(args);
+    if (args.includes('config')) return config;
     if (args.includes('port')) return `0.0.0.0:${++port}\n`;
     // to_regclass returns the relation name when it exists.
     if (args.includes('psql')) return 'relation\n';
@@ -142,12 +165,30 @@ describe('ComposeProvider realm mutation', () => {
   });
 });
 
+describe('ComposeProvider container env gate', () => {
+  test('refuses to boot a stack whose service will not receive what it reads', async () => {
+    // The failure this catches does not stop a boot: the service starts,
+    // answers health checks, and degrades in one level-40 log line. So the
+    // guard has to run BEFORE up, or the run goes green having proved less
+    // than it claimed.
+    const broken = JSON.parse(RENDERED_CONFIG);
+    delete broken.services['signals-api'].environment.SIGNALS_SEARCH_URL;
+    const { calls, run } = fakeDocker(JSON.stringify(broken));
+
+    await expect(new ComposeProvider(TARGET, DEPS(run)).up()).rejects.toThrow(
+      /CONTAINER_ENV_MISSING[\s\S]*SIGNALS_SEARCH_URL/,
+    );
+    expect(calls.some((c) => c.includes('up'))).toBe(false);
+  });
+});
+
 describe('ComposeProvider schema gate', () => {
   test('refuses a stack whose schema never got created', async () => {
     // The bootstrap exiting 0 is only a proxy. If the relations are absent,
     // every later failure would look like an application bug instead of a
     // migration that did not run.
     const run = async (args: string[]) => {
+      if (args.includes('config')) return RENDERED_CONFIG;
       if (args.includes('port')) return '0.0.0.0:55001\n';
       if (args.includes('psql')) return '\n'; // to_regclass -> null
       return '';
@@ -164,6 +205,7 @@ describe('ComposeProvider schema gate', () => {
     const calls: string[][] = [];
     const run = async (args: string[]) => {
       calls.push(args);
+      if (args.includes('config')) return RENDERED_CONFIG;
       if (args.includes('port')) return '0.0.0.0:55001\n';
       if (args.includes('psql')) return 'items\n';
       return '';

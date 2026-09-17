@@ -10,6 +10,7 @@ import {
 } from './stack_env.js';
 import { renderOverlay } from './overlay.js';
 import { assertCoversBaseServices } from './base_services.js';
+import { assertContainerEnv } from './container_env.js';
 import { composeArgs, projectName } from './compose_command.js';
 import { buildEndpoints, parsePublishedPort, type DiscoveredPorts } from './ports.js';
 import { assertSchemaReady } from '../schema_gate.js';
@@ -185,6 +186,13 @@ export class ComposeProvider implements EnvironmentProvider {
         notificationSecretsDir,
       }),
     );
+
+    // The overlay's OTHER failure mode, and the one that survives a green
+    // run: a variable that reaches compose-file interpolation but not the
+    // container. `config` renders the merged view of base + overlay + env
+    // file without starting anything, so this costs a second and fails
+    // before the boot rather than inside a journey three minutes later.
+    assertContainerEnv(await this.deps.run(this.args(['config', '--format', 'json'])));
 
     await this.deps.run(this.args(['up', '-d', '--wait']));
 
