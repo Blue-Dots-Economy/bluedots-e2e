@@ -2,6 +2,7 @@ import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { captureMailBaseline } from '../../awaiters/mailbox.js';
+import { phoneFromSeed } from './contact_details.js';
 
 // `slug`, not `org_slug`: the coordinator registration answers with the
 // latter and these two responses are easy to conflate. The value is the same
@@ -50,9 +51,10 @@ export const registerOrganisation = () =>
           display_name: `Journey Organisation ${seed}`,
           owner: {
             name: 'Journey Org Owner',
-            // Digits only and 10-15 long; the shared contact schema rejects
-            // anything else before the route is reached.
-            phone: '9000100001',
+            // Derived, not fixed. Uniqueness is enforced across every
+            // registration, so a literal collides with the next journey
+            // that registers one and answers PHONE_EXISTS.
+            phone: phoneFromSeed(seed, 'organisation'),
             email: ownerEmail,
           },
           consent: consentWindow(),

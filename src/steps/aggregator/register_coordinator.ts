@@ -2,6 +2,7 @@ import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { captureMailBaseline } from '../../awaiters/mailbox.js';
+import { phoneFromSeed } from './contact_details.js';
 
 type Created = { aggregator_id?: string; org_slug?: string; status?: string };
 
@@ -45,7 +46,7 @@ export const registerCoordinator = (spec: { as: string }) =>
             // Validated against the network's own registration schema, which
             // declares the domains that network serves.
             type: spec.as,
-            contact: { name: 'Journey Coordinator', phone: '9000100002', email },
+            contact: { name: 'Journey Coordinator', phone: phoneFromSeed(seed, 'coordinator'), email },
             consent: {
               value: true,
               given_at: new Date().toISOString(),
