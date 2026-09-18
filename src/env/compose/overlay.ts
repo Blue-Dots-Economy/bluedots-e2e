@@ -212,6 +212,34 @@ ${
         psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -c
         "CREATE DATABASE ${AGGREGATOR_DB}"
 
+  # Serves the target's schema directory over HTTP, to ONE consumer.
+  #
+  # signals reads network.json from this exact directory, bind-mounted. The
+  # aggregator reads it by URL -- its loader calls fetch(), which has no
+  # file:// -- and its shipped config points that URL at a DIFFERENT repo,
+  # a different branch and an examples/ directory:
+  #
+  #   https://raw.githubusercontent.com/.../Signals-DPG/refs/heads/develop/
+  #     examples/schemas/blue_dot/network.json
+  #
+  # So the two services validated the same row against two different
+  # schemas, and a bulk upload the aggregator accepted came back from
+  # signals as INVALID_ITEM_STATE. Serving the mounted directory and
+  # overriding the source makes them the same bytes, from the same pinned
+  # ref, rather than two copies that agree until they do not.
+  #
+  # It also removes a network fetch from a run that is otherwise hermetic.
+  schemas:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    volumes:
+      - ${targetDir}:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/network.json || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   # Object storage for bulk uploads. No published host port: every
   # presigned URL is signed over its Host header, so the URL cannot be
   # re-based onto a discovered port the way an emailed link can, and
@@ -305,6 +333,11 @@ ${
       # name an organisation aborts.
       signals-org-init:
         condition: service_completed_successfully
+      # Its loader falls back to a cached copy on a failed fetch, so an
+      # absent schema server would be invisible -- the aggregator would run
+      # on whatever it last saw, or on nothing.
+      schemas:
+        condition: service_healthy
       redis:
         condition: service_healthy
       keycloak:
@@ -345,6 +378,10 @@ ${
       PUBLIC_LINK_BASE_URL: http://localhost:3100
       SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
       AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      # Overrides the URL in the shipped YAML, which points at another
+      # repo's examples/ directory on another branch. Same file signals
+      # reads, same pinned ref.
+      AGGREGATOR_NETWORK_SOURCE: http://schemas/network.json
       # Keycloak, not the retiring api-key path. The client id doubles as the
       # signals organisation slug -- that is how resolveServiceAccount finds
       # the org -- and signals refuses the token outright unless the same id
@@ -491,6 +528,8 @@ ${reset('signals-api')}
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      schemas:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://\${POSTGRES_USER:-postgres}:\${POSTGRES_PASSWORD}@postgres:5432/${AGGREGATOR_DB}
@@ -511,6 +550,10 @@ ${reset('signals-api')}
       SMTP_PASSWORD: ""
       SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
       AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      # Overrides the URL in the shipped YAML, which points at another
+      # repo's examples/ directory on another branch. Same file signals
+      # reads, same pinned ref.
+      AGGREGATOR_NETWORK_SOURCE: http://schemas/network.json
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_REALM: \${KEYCLOAK_REALM}
       # The same Keycloak push the API uses, and the same trap: without the

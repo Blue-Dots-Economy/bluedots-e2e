@@ -77,6 +77,11 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     'S3_ENDPOINT',
     'S3_PUBLIC_ENDPOINT',
     'S3_BUCKET',
+    // Unset, the aggregator reads the URL in its shipped YAML -- another
+    // repo's examples/ directory, on another branch -- and validates rows
+    // against a schema signals has never seen. The disagreement surfaces
+    // only as a row signals rejects, three services downstream.
+    'AGGREGATOR_NETWORK_SOURCE',
   ],
   // The worker runs the bulk pipeline, and aggregator's own compose omits
   // the acting org from it exactly as it does from the API. Without it every
@@ -90,6 +95,7 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     'SIGNALSTACK_ACTING_ORG_ID',
     'S3_ENDPOINT',
     'S3_BUCKET',
+    'AGGREGATOR_NETWORK_SOURCE',
   ],
 };
 

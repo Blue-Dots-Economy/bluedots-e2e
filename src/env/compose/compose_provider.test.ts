@@ -25,6 +25,7 @@ const RENDERED_CONFIG = JSON.stringify({
         SIGNALSTACK_ACTING_ORG_ID: 'org_x',
         S3_ENDPOINT: 'http://minio:9000',
         S3_BUCKET: 'b',
+        AGGREGATOR_NETWORK_SOURCE: 'http://schemas/network.json',
       },
     },
     'aggregator-api': {
@@ -41,6 +42,7 @@ const RENDERED_CONFIG = JSON.stringify({
         S3_ENDPOINT: 'http://minio:9000',
         S3_PUBLIC_ENDPOINT: 'http://minio:9000',
         S3_BUCKET: 'b',
+        AGGREGATOR_NETWORK_SOURCE: 'http://schemas/network.json',
       },
     },
     'signals-api': {

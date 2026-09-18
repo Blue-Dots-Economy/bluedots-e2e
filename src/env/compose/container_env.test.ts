@@ -28,6 +28,7 @@ const workerEnv = {
   SIGNALSTACK_ACTING_ORG_ID: 'org_x',
   S3_ENDPOINT: 'http://minio:9000',
   S3_BUCKET: 'b',
+  AGGREGATOR_NETWORK_SOURCE: 'http://schemas/network.json',
 };
 
 const aggregatorEnv = {
@@ -43,6 +44,7 @@ const aggregatorEnv = {
   S3_ENDPOINT: 'http://minio:9000',
   S3_PUBLIC_ENDPOINT: 'http://minio:9000',
   S3_BUCKET: 'b',
+  AGGREGATOR_NETWORK_SOURCE: 'http://schemas/network.json',
 };
 
 describe('assertContainerEnv', () => {
