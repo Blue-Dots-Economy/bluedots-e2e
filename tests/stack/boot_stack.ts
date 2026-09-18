@@ -30,6 +30,7 @@ import { createNotificationProbe } from '../../src/awaiters/notification_probe.j
 import { createParticipantKeys } from '../../src/env/participant_keys.js';
 import { captureMailBaseline, createMailProbe, oneTimeCodeIn } from '../../src/awaiters/mailbox.js';
 import { createNetworkOrgs } from '../../src/awaiters/network_orgs.js';
+import { readConsentVersions } from '../../src/targets/consent_versions.js';
 import { obtainServiceToken } from '../../src/seed/service_token.js';
 import { signInThroughTheFrontDoor } from '../../src/env/browser_session.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
@@ -213,6 +214,14 @@ async function seedBootedStack(
   const mail = createMailProbe({ baseUrl: env.endpoints.mailpit, fetcher: opts.http ?? fetch });
   const networkOrgs = createNetworkOrgs({ postgresUrl: env.endpoints.postgresUrl });
 
+  // The versions the target publishes, read from the same document signals
+  // resolves them from. Absent for a target that ships no consent document,
+  // which makes a journey needing one report NOT COVERED rather than
+  // accepting a version nobody declared.
+  const consent = resolved.consentPath
+    ? readConsentVersions(await readFile(resolved.consentPath, 'utf8'))
+    : undefined;
+
   // A person's token. The password is set here because the aggregator
   // never sets one -- its users sign in by OTP -- but everything that makes
   // the token meaningful was written by the product: the claims the
@@ -325,6 +334,7 @@ async function seedBootedStack(
       endpoints: env.endpoints,
       seeded: seeded as unknown as Record<string, unknown>,
       target,
+      consent,
       probe,
       notifications,
       keys,

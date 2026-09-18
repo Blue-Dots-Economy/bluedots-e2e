@@ -21,6 +21,11 @@ export type StepContext = {
    * -- otherwise anything but the hardcoded one sends the wrong fields.
    */
   target?: import('../targets/target_schemas.js').TargetSchemas;
+  /**
+   * The consent versions this target declares, from its own document in
+   * bluedots-schemas. Present only where the target ships one.
+   */
+  consent?: import('../targets/consent_versions.js').ConsentVersions;
   /** Present only where the environment offers redis + postgres. */
   probe?: import('../awaiters/ingest.js').IngestProbe;
   /**

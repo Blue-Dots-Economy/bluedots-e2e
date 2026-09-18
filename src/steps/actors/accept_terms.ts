@@ -20,6 +20,7 @@ export const acceptTerms = (spec: { as: string }) =>
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const target = requireContext(ctx.target, 'target');
+      const consent = requireContext(ctx.consent, "this target's consent document");
       const session = requireState(state, 'sessions')[spec.as];
       if (!session) {
         throw new Error(`STEP_FAILED: the "${spec.as}" is not signed in, so nobody can accept.`);
@@ -36,7 +37,18 @@ export const acceptTerms = (spec: { as: string }) =>
         body: JSON.stringify({
           network: target.network,
           source: 'signup',
-          items: [{ category: 'user_terms' }, { category: 'user_privacy' }],
+          // `terms` and `privacy`, not the `user_terms` / `user_privacy`
+          // the admin route's compliance array uses: two vocabularies for
+          // the same two documents, and this one is the ledger's.
+          //
+          // Versions from the target's own consent document rather than a
+          // literal. The ledger stores what it is given, so a hardcoded one
+          // records an acceptance of a revision nobody was shown the moment
+          // the network publishes a new one.
+          items: [
+            { category: 'terms', version: consent.versionFor('terms') },
+            { category: 'privacy', version: consent.versionFor('privacy') },
+          ],
         }),
       });
 
