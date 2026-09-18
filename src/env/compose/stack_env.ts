@@ -38,12 +38,25 @@ const TIMING = {
 } as const;
 
 /**
- * The issuer signals-api validates, and therefore the one keycloak must
- * mint. Exported so the overlay pins KC_HOSTNAME to the same value: the
- * published host port is ephemeral, and the two drifting apart 401s every
- * token at first use.
+ * The issuer keycloak mints, and therefore the one every service validates.
+ * Exported so the overlay pins KC_HOSTNAME to the same value: the published
+ * host port is ephemeral, and with KC_HOSTNAME_STRICT false keycloak would
+ * derive `iss` from the request URL -- so a token taken through that port
+ * carries a port number nothing is configured to expect, and 401s at first
+ * use.
+ *
+ * The COMPOSE hostname, not localhost. signals splits the two concerns
+ * (KEYCLOAK_BASE_URL validates `iss`, KEYCLOAK_INTERNAL_BASE_URL fetches the
+ * JWKS) and could take either; aggregator-dpg derives BOTH from a single
+ * KEYCLOAK_URL, so a localhost issuer would make it look for the JWKS on its
+ * own loopback. One value has to satisfy both jobs, and only the compose
+ * name is reachable from inside a container.
+ *
+ * The harness still reaches keycloak over the published host port. That
+ * affects nothing here: KC_HOSTNAME governs what keycloak EMITS, not what
+ * it accepts.
  */
-export const KEYCLOAK_ISSUER = 'http://localhost:8080';
+export const KEYCLOAK_ISSUER = 'http://keycloak:8080';
 
 /**
  * The HMAC identity signals-dpg signs notification requests with.
@@ -94,10 +107,11 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // it allowed, so that is what the suite verifies; a journey for the
     // gated refusal would need its own stack, like the negative control.
     SELF_SIGNUP_MODE: 'allowed',
-    // iss derives from the PUBLIC url; the internal one is the compose
-    // service name. Collapsing them fails every token.
+    // Both the compose hostname now, and deliberately the same value: the
+    // issuer has to be somewhere every container can also FETCH from, and
+    // aggregator-dpg has one variable for both jobs.
     KEYCLOAK_BASE_URL: KEYCLOAK_ISSUER,
-    KEYCLOAK_INTERNAL_BASE_URL: 'http://keycloak:8080',
+    KEYCLOAK_INTERNAL_BASE_URL: KEYCLOAK_ISSUER,
     KEYCLOAK_REALM: 'bluedots',
     KEYCLOAK_UI_CLIENT_ID: 'signals-ui',
     PUBLIC_BASE_URL: 'http://localhost:5173',

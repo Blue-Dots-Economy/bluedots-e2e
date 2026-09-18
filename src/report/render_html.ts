@@ -1,6 +1,7 @@
 import { SECRET_HEADERS } from './http_recorder.js';
 import { duration, escapeHtml as escape, failedRequests, isFailedRequest, seconds } from './format.js';
 import { caseNameOf, type JourneyView, type StepView } from './journey_views.js';
+import { describeSource } from './source_label.js';
 
 export type CaseReport = {
   name: string;
@@ -361,7 +362,7 @@ export function renderHtml(report: RunReport): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Release verification — ${escape(report.releaseTag)}</title>
+<title>Verification — ${escape(report.releaseTag)}</title>
 <style>
 :root{
   --bg:#F5F6F8;--panel:#fff;--line:#E4E7ED;--line-2:#EEF0F4;
@@ -514,7 +515,7 @@ summary.s-summary::-webkit-details-marker{display:none}
   <div class="header">
     <div class="verdict">
       <span class="verdict-badge ${ok ? 'pass' : 'fail'}">${ok ? 'PASSED' : 'FAILED'}</span>
-      <div class="verdict-meta">Release <b>${escape(report.releaseTag)}</b> · target <b>${escape(report.target)}</b> · ${cases.length - failedCases.length} of ${cases.length} checks passed</div>
+      <div class="verdict-meta">${escape(describeSource(report.releaseTag).split(' ')[0]!)} <b>${escape(report.releaseTag)}</b> · target <b>${escape(report.target)}</b> · ${cases.length - failedCases.length} of ${cases.length} checks passed</div>
     </div>
     <div class="run-meta">
       <div class="item"><div class="l">DURATION</div><div class="v">${seconds(totalMs)}</div></div>

@@ -1,6 +1,7 @@
 import { caseNameOf, type JourneyView } from './journey_views.js';
 import { duration, failedRequests, isFailedRequest, seconds } from './format.js';
 import { classifyFailure } from './failure_class.js';
+import { describeSource } from './source_label.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
 
 /** A pipe ends a table cell, so any text going into one has to lose it. */
@@ -86,7 +87,7 @@ export function renderMarkdown(report: RunReport): string {
     !ok && failedCases.some((c) => classifyFailure(c.failure ?? '') === 'harness');
 
   return [
-    `## ${ok ? '✅ PASSED' : '❌ FAILED'} — release \`${report.releaseTag}\` · target \`${report.target}\``,
+    `## ${ok ? '✅ PASSED' : '❌ FAILED'} — ${describeSource(report.releaseTag).replace(report.releaseTag, `\`${report.releaseTag}\``)} · target \`${report.target}\``,
     '',
     ...(harnessBroke
       ? [

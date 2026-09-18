@@ -47,13 +47,19 @@ describe('buildStackEnv', () => {
     expect(buildStackEnv(TARGET).EMBEDDING_DIM).toBe('1024');
   });
 
-  test('keeps the public issuer separate from the internal URL', () => {
+  test('issues tokens from somewhere every container can also fetch from', () => {
     const env = buildStackEnv(TARGET);
 
-    // iss derives from the public URL; a browser-vs-container mismatch fails
-    // every token with a signature that looks fine.
-    expect(env.KEYCLOAK_BASE_URL).not.toBe(env.KEYCLOAK_INTERNAL_BASE_URL);
-    expect(env.KEYCLOAK_INTERNAL_BASE_URL).toContain('keycloak');
+    // These used to differ -- a public issuer and an internal fetch URL --
+    // which signals supports and aggregator-dpg does not: it derives BOTH
+    // the expected `iss` and the JWKS location from one KEYCLOAK_URL, so a
+    // localhost issuer sent it looking for the JWKS on its own loopback and
+    // every token came back "unexpected iss claim value".
+    //
+    // localhost is also the wrong half to keep: the published port is
+    // ephemeral, so nothing can be configured to expect it.
+    expect(env.KEYCLOAK_BASE_URL).toBe(env.KEYCLOAK_INTERNAL_BASE_URL);
+    expect(env.KEYCLOAK_BASE_URL).toBe('http://keycloak:8080');
   });
 
   test('supplies every fail-hard secret the stack refuses to boot without', () => {

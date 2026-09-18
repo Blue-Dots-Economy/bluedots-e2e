@@ -3,7 +3,10 @@ import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { captureMailBaseline } from '../../awaiters/mailbox.js';
 
-type OrgCreated = { org_id?: string; org_slug?: string; status?: string };
+// `slug`, not `org_slug`: the coordinator registration answers with the
+// latter and these two responses are easy to conflate. The value is the same
+// thing in both -- what signals stores as the organisation's slug.
+type OrgCreated = { org_id?: string; slug?: string; status?: string };
 
 /** A year out, so the consent a registration carries is live when it is read. */
 const consentWindow = () => ({
@@ -75,6 +78,6 @@ export const registerOrganisation = () =>
         );
       }
 
-      state.organisation = { id: body.org_id, ownerEmail, ...(body.org_slug ? { slug: body.org_slug } : {}) };
+      state.organisation = { id: body.org_id, ownerEmail, ...(body.slug ? { slug: body.slug } : {}) };
     },
   });

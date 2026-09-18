@@ -1,5 +1,6 @@
 import type { CaseReport, RunReport } from './render_html.js';
 import { duration, failedRequests } from './format.js';
+import { describeSource } from './source_label.js';
 
 /**
  * Newman-style console output.
@@ -58,7 +59,10 @@ function table(rows: [string, number, number, number][], footers: string[]): str
 
 export function renderNewman(report: RunReport): string {
   const out: string[] = ['', 'release verification', ''];
-  out.push(`Release ${report.releaseTag} · target ${report.target}`, '');
+  // Capitalised for the headline, but the word itself comes from the
+  // source: a branch run must not read as a verified release.
+  const source = describeSource(report.releaseTag);
+  out.push(`${source[0]!.toUpperCase()}${source.slice(1)} · target ${report.target}`, '');
 
   const failures: { group: string; leaf: string; failure: string }[] = [];
   let executed = 0;
