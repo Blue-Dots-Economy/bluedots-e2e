@@ -16,6 +16,17 @@ const TARGET: ResolvedTarget = {
  */
 const RENDERED_CONFIG = JSON.stringify({
   services: {
+    'aggregator-worker': {
+      environment: {
+        SIGNALSTACK_AUTH_MODE: 'bearer',
+        SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
+        SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+        SIGNALSTACK_CLIENT_SECRET: 's',
+        SIGNALSTACK_ACTING_ORG_ID: 'org_x',
+        S3_ENDPOINT: 'http://minio:9000',
+        S3_BUCKET: 'b',
+      },
+    },
     'aggregator-api': {
       environment: {
         KEYCLOAK_ALLOWED_AZP: 'aggregator-bff',
@@ -27,6 +38,9 @@ const RENDERED_CONFIG = JSON.stringify({
         SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
         SIGNALSTACK_CLIENT_SECRET: 's',
         SIGNALSTACK_ACTING_ORG_ID: 'org_x',
+        S3_ENDPOINT: 'http://minio:9000',
+        S3_PUBLIC_ENDPOINT: 'http://minio:9000',
+        S3_BUCKET: 'b',
       },
     },
     'signals-api': {

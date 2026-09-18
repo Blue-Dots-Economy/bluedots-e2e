@@ -7,6 +7,7 @@ import {
   NOTIFICATION_PORT,
   SIGNALS_ACTING_ORG_ID,
   SIGNALS_ACTING_ORG_SLUG,
+  MINIO_PORT,
 } from './stack_env.js';
 import { resetFor } from './base_services.js';
 
@@ -207,6 +208,46 @@ ${
         psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -c
         "CREATE DATABASE ${AGGREGATOR_DB}"
 
+  # Object storage for bulk uploads. No published host port: every
+  # presigned URL is signed over its Host header, so the URL cannot be
+  # re-based onto a discovered port the way an emailed link can, and
+  # publishing a fixed one is the collision this overlay exists to avoid.
+  # The upload is issued from inside the network instead.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: \${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: \${MINIO_ROOT_PASSWORD}
+      MINIO_REGION: \${S3_REGION}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${MINIO_PORT}/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # The bucket, once. Idempotent, so a re-run against a surviving volume is
+  # a no-op rather than an error.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: \${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: \${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: \${S3_BUCKET}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:${MINIO_PORT} "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+
   # The signals organisation the aggregator acts as, created with a KNOWN
   # id. aggregator-api reads that id from its environment at boot, and the
   # row can only exist once signals' schema does -- the same ordering
@@ -306,6 +347,17 @@ ${
       SIGNALSTACK_CLIENT_SECRET: \${SIGNALSTACK_CLIENT_SECRET}
       SIGNALSTACK_ACTING_ORG_ID: \${SIGNALSTACK_ACTING_ORG_ID}
       SIGNALSTACK_ITEM_NETWORK: \${AGGREGATOR_NETWORK}
+      # Both endpoints the compose name. The public one is what gets signed
+      # into every presigned URL, and SigV4 covers the Host header -- so it
+      # has to be somewhere the signature stays valid AND something inside
+      # the network can reach.
+      S3_REGION: \${S3_REGION}
+      S3_BUCKET: \${S3_BUCKET}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ENDPOINT: http://minio:${MINIO_PORT}
+      S3_PUBLIC_ENDPOINT: http://minio:${MINIO_PORT}
+      S3_ACCESS_KEY_ID: \${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: \${MINIO_ROOT_PASSWORD}
     volumes:
       - ${aggregatorRoot}/config:/app/config:ro
     healthcheck:
@@ -417,6 +469,54 @@ ${reset('signals-api')}
       FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
     volumes: !override
       - ${networkMount}
+
+  # Runs the bulk pipeline: file-process, then a job per row, then the
+  # finalise that writes errors.csv. Nothing observes it directly -- the
+  # journeys assert on what reaches signals -- but without it an upload
+  # transitions to running and stays there forever, which reads as a slow
+  # stack rather than an absent service.
+  aggregator-worker:
+    image: ghcr.io/blue-dots-economy/aggregator-dpg/worker@${digests['aggregator-dpg-worker']}
+    restart: unless-stopped
+    depends_on:
+      aggregator-api:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://\${POSTGRES_USER:-postgres}:\${POSTGRES_PASSWORD}@postgres:5432/${AGGREGATOR_DB}
+      REDIS_URL: redis://:\${REDIS_PASSWORD}@redis:6379
+      S3_REGION: \${S3_REGION}
+      S3_BUCKET: \${S3_BUCKET}
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ENDPOINT: http://minio:${MINIO_PORT}
+      S3_PUBLIC_ENDPOINT: http://minio:${MINIO_PORT}
+      S3_ACCESS_KEY_ID: \${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: \${MINIO_ROOT_PASSWORD}
+      MAIL_PROVIDER: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_FROM: no-reply@journey.test
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
+      AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: \${KEYCLOAK_REALM}
+      # The same Keycloak push the API uses, and the same trap: without the
+      # acting org the writer answers SIGNALSTACK_CONFIG_MISSING and every
+      # row is processed and sent nowhere. aggregator's own compose omits
+      # this one from the worker too.
+      SIGNALSTACK_AUTH_MODE: \${SIGNALSTACK_AUTH_MODE}
+      SIGNALSTACK_BASE_URL: \${SIGNALSTACK_BASE_URL}
+      SIGNALSTACK_CLIENT_ID: \${SIGNALSTACK_CLIENT_ID}
+      SIGNALSTACK_CLIENT_SECRET: \${SIGNALSTACK_CLIENT_SECRET}
+      SIGNALSTACK_ACTING_ORG_ID: \${SIGNALSTACK_ACTING_ORG_ID}
+      SIGNALSTACK_ITEM_NETWORK: \${AGGREGATOR_NETWORK}
+    volumes:
+      - ${aggregatorRoot}/config:/app/config:ro
 
   # Not needed: journeys assert over HTTP. Moving it behind an unused profile
   # keeps it defined without booting it.

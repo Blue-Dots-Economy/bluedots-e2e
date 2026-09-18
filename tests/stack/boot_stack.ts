@@ -106,9 +106,17 @@ export async function bootStack(
   // that boot are required, so a tag not cut fleet-wide does not stop a run
   // that never needed the other images.
   const digests = await resolveDigests(
-    Object.fromEntries(SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])])),
+    {
+      ...Object.fromEntries(SERVICES.map((s) => [s, imageRef(s, 'api', tags[s])])),
+      // aggregator-dpg publishes one image PER COMPONENT, and the bulk
+      // pipeline runs in the worker -- a different image from the api, so a
+      // different digest. Keyed separately rather than folded in: pinning
+      // the worker to the api's digest would boot the api twice and leave
+      // every upload stuck in `running`.
+      'aggregator-dpg-worker': imageRef('aggregator-dpg', 'worker', tags['aggregator-dpg']),
+    },
     dockerInspector,
-    { required: [...BOOTED_SERVICES] },
+    { required: [...BOOTED_SERVICES, 'aggregator-dpg-worker'] },
   );
 
   const provider = new ComposeProvider(resolved, {

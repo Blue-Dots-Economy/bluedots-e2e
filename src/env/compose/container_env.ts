@@ -71,6 +71,25 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     // SIGNALSTACK_CONFIG_MISSING and EVERY coordinator approval aborts --
     // announced once, at warn level, at boot.
     'SIGNALSTACK_ACTING_ORG_ID',
+    // Presigned URLs are signed over the Host header, so this value is not
+    // cosmetic: a wrong one issues URLs whose signature no caller can
+    // satisfy, and the upload fails at the PUT rather than at the config.
+    'S3_ENDPOINT',
+    'S3_PUBLIC_ENDPOINT',
+    'S3_BUCKET',
+  ],
+  // The worker runs the bulk pipeline, and aggregator's own compose omits
+  // the acting org from it exactly as it does from the API. Without it every
+  // row is processed and sent nowhere, which is a completed upload over an
+  // empty network.
+  'aggregator-worker': [
+    'SIGNALSTACK_AUTH_MODE',
+    'SIGNALSTACK_BASE_URL',
+    'SIGNALSTACK_CLIENT_ID',
+    'SIGNALSTACK_CLIENT_SECRET',
+    'SIGNALSTACK_ACTING_ORG_ID',
+    'S3_ENDPOINT',
+    'S3_BUCKET',
   ],
 };
 

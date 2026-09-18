@@ -20,6 +20,16 @@ const apiEnv = {
   KEYCLOAK_SERVICE_CLIENT_IDS: 'aggregator-dpg',
 };
 
+const workerEnv = {
+  SIGNALSTACK_AUTH_MODE: 'bearer',
+  SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
+  SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+  SIGNALSTACK_CLIENT_SECRET: 's',
+  SIGNALSTACK_ACTING_ORG_ID: 'org_x',
+  S3_ENDPOINT: 'http://minio:9000',
+  S3_BUCKET: 'b',
+};
+
 const aggregatorEnv = {
   KEYCLOAK_ALLOWED_AZP: 'aggregator-bff',
   ORG_HIERARCHY_ENABLED: 'true',
@@ -30,11 +40,14 @@ const aggregatorEnv = {
   SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
   SIGNALSTACK_CLIENT_SECRET: 's',
   SIGNALSTACK_ACTING_ORG_ID: 'org_x',
+  S3_ENDPOINT: 'http://minio:9000',
+  S3_PUBLIC_ENDPOINT: 'http://minio:9000',
+  S3_BUCKET: 'b',
 };
 
 describe('assertContainerEnv', () => {
   test('passes when every declared variable reaches the container', () => {
-    expect(() => assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': aggregatorEnv }))).not.toThrow();
+    expect(() => assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': aggregatorEnv, 'aggregator-worker': workerEnv }))).not.toThrow();
   });
 
   test('names the service and the variable a container will not receive', () => {
@@ -44,7 +57,7 @@ describe('assertContainerEnv', () => {
     // was reading.
     const { SIGNALS_SEARCH_URL: _, ...missing } = apiEnv;
 
-    expect(() => assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv }))).toThrow(
+    expect(() => assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv, 'aggregator-worker': workerEnv }))).toThrow(
       /CONTAINER_ENV_MISSING.*signals-api.*SIGNALS_SEARCH_URL/s,
     );
   });
@@ -54,13 +67,13 @@ describe('assertContainerEnv', () => {
     // string: present in the rendered config, and read by the service as
     // absent. Exactly the same silent fallback, one layer further in.
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, SIGNALS_SEARCH_API_KEY: '' }, 'aggregator-api': aggregatorEnv })),
+      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, SIGNALS_SEARCH_API_KEY: '' }, 'aggregator-api': aggregatorEnv, 'aggregator-worker': workerEnv })),
     ).toThrow(/SIGNALS_SEARCH_API_KEY/);
   });
 
   test('treats a variable rendered as null the same way', () => {
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, NOTIFICATION_SERVICE_SECRET: null }, 'aggregator-api': aggregatorEnv })),
+      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, NOTIFICATION_SERVICE_SECRET: null }, 'aggregator-api': aggregatorEnv, 'aggregator-worker': workerEnv })),
     ).toThrow(/NOTIFICATION_SERVICE_SECRET/);
   });
 
@@ -68,7 +81,7 @@ describe('assertContainerEnv', () => {
     const { SIGNALS_SEARCH_URL: _a, NOTIFICATION_FROM_EMAIL: _b, ...missing } = apiEnv;
     let message = '';
     try {
-      assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv }));
+      assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv, 'aggregator-worker': workerEnv }));
     } catch (err) {
       message = (err as Error).message;
     }
@@ -91,7 +104,7 @@ describe('assertContainerEnv', () => {
     const { SIGNALSTACK_CLIENT_SECRET: _, ...broken } = aggregatorEnv;
 
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': broken })),
+      assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': broken, 'aggregator-worker': workerEnv })),
     ).toThrow(/aggregator-api.*SIGNALSTACK_CLIENT_SECRET/s);
   });
 });

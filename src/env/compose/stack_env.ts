@@ -105,6 +105,22 @@ export const SIGNALS_ACTING_ORG_ID = 'org_journey_aggregator_dpg';
 /** Slug of that organisation. Signals resolves a service caller BY it. */
 export const SIGNALS_ACTING_ORG_SLUG = 'aggregator-dpg';
 
+/**
+ * Object storage for bulk uploads, addressed by its COMPOSE name on both
+ * sides.
+ *
+ * S3_PUBLIC_ENDPOINT is the host baked into every presigned URL, and SigV4
+ * signs the Host header -- so a presigned URL cannot be re-based onto a
+ * different host the way an emailed approval link can. Pointing it at
+ * localhost would mean publishing a FIXED host port (the collision this
+ * overlay exists to avoid) and would still sign a host the runner may not
+ * own. Pointing it at the compose name instead keeps the signature valid
+ * for somewhere every container can reach, and the upload is issued from
+ * inside the network -- see uploadParticipants.
+ */
+export const S3_BUCKET = 'aggregator-bulk-uploads';
+export const MINIO_PORT = 9000;
+
 export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
   return {
     ...TEST_SECRETS,
@@ -185,6 +201,13 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // aborts -- with a warn-level line at boot saying exactly that, which
     // nobody reads.
     SIGNALSTACK_ACTING_ORG_ID: SIGNALS_ACTING_ORG_ID,
+
+    // Object storage. The root password is rejected below 8 characters and
+    // the container refuses to start.
+    MINIO_ROOT_USER: 'journeyminio',
+    MINIO_ROOT_PASSWORD: 'journey-minio-password',
+    S3_REGION: 'us-east-1',
+    S3_BUCKET,
 
     // Without all three, getNotificationClient() returns undefined and the
     // API silently sends nothing -- which is what made the notification
