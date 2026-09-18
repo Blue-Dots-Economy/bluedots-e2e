@@ -212,6 +212,33 @@ async function seedBootedStack(
   const mail = createMailProbe({ baseUrl: env.endpoints.mailpit, fetcher: opts.http ?? fetch });
   const networkOrgs = createNetworkOrgs({ postgresUrl: env.endpoints.postgresUrl });
 
+  // A person's token. The password is set here because the aggregator
+  // never sets one -- its users sign in by OTP -- but everything that makes
+  // the token meaningful was written by the product: the claims the
+  // approval put on the user, and Keycloak's own signature.
+  const signInAs = async (email: string) => {
+    const [found] = await admin.findUsersByEmail(stackEnv.KEYCLOAK_REALM!, email);
+    if (!found) {
+      throw new Error(
+        `STEP_FAILED: no realm user for ${email}, so nobody can be signed in as them.`,
+      );
+    }
+    const password = `journey-${found.id}`;
+    await admin.setPassword(stackEnv.KEYCLOAK_REALM!, found.id, password);
+    return obtainUserToken(
+      {
+        baseUrl: env.endpoints.keycloak,
+        realm: stackEnv.KEYCLOAK_REALM!,
+        // The aggregator's human client. Its azp is on that service's
+        // allow-list; signals-ui's is not.
+        clientId: 'aggregator-portal',
+        clientSecret: stackEnv.AGGREGATOR_PORTAL_SECRET!,
+      },
+      { username: email, password },
+      opts.http ?? fetch,
+    );
+  };
+
   // The realm is where an approval's whole effect lands -- enabled, a role,
   // a group -- and none of it is readable over any service's HTTP API.
   const realmUser = async (email: string) => {
@@ -275,6 +302,8 @@ async function seedBootedStack(
       mail,
       networkOrgs,
       realmUser,
+      signInAs,
+      execInStack: (service, command) => provider.exec(service, command),
       serviceToken,
       auth: {
         apiKey: seeded.apiKey,

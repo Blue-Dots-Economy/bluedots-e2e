@@ -18,6 +18,7 @@ import { aRequestHidesContactDetailsUntilAccepted } from './connections/a_reques
 import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepted_request_reveals_contact_details.js';
 import { anOrganisationJoinsTheNetwork } from './aggregator/an_organisation_joins_the_network.js';
 import { aCoordinatorJoinsAnOrganisation } from './aggregator/a_coordinator_joins_an_organisation.js';
+import { aBulkUploadOnboardsParticipants } from './aggregator/a_bulk_upload_onboards_participants.js';
 
 /**
  * Every journey the suite knows about.
@@ -50,6 +51,7 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   // aggregator-onboarding
   anOrganisationJoinsTheNetwork,
   aCoordinatorJoinsAnOrganisation,
+  aBulkUploadOnboardsParticipants,
   // consent-and-data-disclosure (continued)
   aRequestHidesContactDetailsUntilAccepted,
   anAcceptedRequestRevealsContactDetails,

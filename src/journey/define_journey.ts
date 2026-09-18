@@ -60,6 +60,27 @@ export type StepContext = {
   realmUser?: (
     email: string,
   ) => Promise<{ id: string; enabled: boolean; roles: string[]; groups: string[] } | null>;
+  /**
+   * Gives a person a password and returns a token for them.
+   *
+   * The aggregator creates its users through Keycloak's Admin API and never
+   * sets one -- a real coordinator signs in by OTP. Setting one here is a
+   * harness affordance and nothing more: the token that comes back is
+   * minted by Keycloak, carries the `aggregator_id` and `decision_made`
+   * claims the PRODUCT wrote, and is checked by the service exactly as any
+   * other. There is no test-only branch anywhere in the services.
+   */
+  signInAs?: (email: string) => Promise<string>;
+  /**
+   * Runs a command inside a container on the stack's own network.
+   *
+   * Needed for exactly one thing: a presigned upload. Those URLs are signed
+   * over the Host header, so unlike an emailed link they cannot be re-based
+   * onto a published port -- the signature would not survive. Issuing the
+   * PUT from inside the network keeps the URL byte-for-byte as the service
+   * minted it.
+   */
+  execInStack?: (service: string, command: readonly string[]) => Promise<string>;
   /** Reads the organisations the NETWORK holds, which is where a coordinator lands. */
   networkOrgs?: { findBySlug: (slug: string) => Promise<{ id: string; name: string } | null> };
   auth?: { apiKey: string; actingOrgId: string; participantToken: string };

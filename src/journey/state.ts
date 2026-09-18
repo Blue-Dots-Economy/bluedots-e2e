@@ -39,6 +39,12 @@ export type JourneyState = {
    */
   organisation?: { id: string; ownerEmail: string; slug?: string };
   coordinator?: { id: string; email: string; slug?: string };
+  /** A token for the approved coordinator, carrying the claims its approval set. */
+  coordinatorToken?: string;
+  /** The bulk upload a step created, for the steps that start and await it. */
+  bulkUploadId?: string;
+  /** The address the uploaded row carries, which is how it is found afterwards. */
+  bulkEmail?: string;
   /**
    * The mailbox as it stood before the triggering step.
    *
@@ -71,6 +77,9 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   accounts: 'registerAccount',
   organisation: 'registerOrganisation',
   coordinator: 'registerCoordinator',
+  coordinatorToken: 'signInAsCoordinator',
+  bulkUploadId: 'uploadParticipants',
+  bulkEmail: 'uploadParticipants',
   mailBaseline: 'the step that triggers the email',
   actionId: 'applyTo',
   signedUp: 'signUp',

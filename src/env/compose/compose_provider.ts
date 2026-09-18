@@ -246,6 +246,14 @@ export class ComposeProvider implements EnvironmentProvider {
     if (await enableDirectGrant(admin, env.KEYCLOAK_REALM!, 'signals-ui')) {
       realmMutations.push('enabled directAccessGrants on signals-ui');
     }
+    // The aggregator's human client, for the same reason: a coordinator
+    // approved by their organisation has to be able to hold a token, and
+    // the realm ships every client with the direct grant off. Its `azp` is
+    // on the aggregator's allow-list, so a token minted here is one the
+    // service already accepts.
+    if (await enableDirectGrant(admin, env.KEYCLOAK_REALM!, 'aggregator-portal')) {
+      realmMutations.push('enabled directAccessGrants on aggregator-portal');
+    }
 
     return {
       target: this.target,

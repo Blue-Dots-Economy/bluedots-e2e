@@ -74,8 +74,11 @@ function fakeDocker(config: string = RENDERED_CONFIG) {
 }
 
 const STUB_ADMIN = async () => ({
-  getClients: async () => [
-    { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: true },
+  // Both clients the boot enables the direct grant on. A stub returning
+  // only one makes enableDirectGrant throw "not in realm" for the other,
+  // which is the right behaviour -- the realm really would be missing it.
+  getClients: async (_realm: string, clientId: string) => [
+    { id: `u-${clientId}`, clientId, directAccessGrantsEnabled: true },
   ],
   updateClient: async () => {},
   createUser: async () => 'user-uuid',
@@ -174,15 +177,17 @@ describe('ComposeProvider realm mutation', () => {
       ...DEPS(run),
       createAdmin: async () => ({
         ...(await STUB_ADMIN()),
-        getClients: async () => [
-          { id: 'u1', clientId: 'signals-ui', directAccessGrantsEnabled: false },
+        getClients: async (_realm: string, clientId: string) => [
+          { id: `u-${clientId}`, clientId, directAccessGrantsEnabled: false },
         ],
       }),
     }).up();
 
     // A mutated realm is not quite the realm the services deploy against, so
-    // the run has to be able to say what it changed.
+    // the run has to be able to say what it changed -- for BOTH human
+    // clients, since the aggregator's is now enabled as well.
     expect(ctx.realmMutations).toContain('enabled directAccessGrants on signals-ui');
+    expect(ctx.realmMutations).toContain('enabled directAccessGrants on aggregator-portal');
   });
 
   test('records nothing when the realm already allowed direct grant', async () => {
