@@ -49,6 +49,9 @@ export type JourneyState = {
    * declares no email column at all.
    */
   bulkPhone?: string;
+  /** The number on the row that was meant to be rejected, and the field left blank. */
+  bulkInvalidPhone?: string;
+  bulkInvalidField?: string;
   /**
    * The mailbox as it stood before the triggering step.
    *
@@ -84,6 +87,8 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   coordinatorToken: 'signInAsCoordinator',
   bulkUploadId: 'uploadParticipants',
   bulkPhone: 'uploadParticipants',
+  bulkInvalidPhone: 'uploadParticipants with an invalid row',
+  bulkInvalidField: 'uploadParticipants with an invalid row',
   mailBaseline: 'the step that triggers the email',
   actionId: 'applyTo',
   signedUp: 'signUp',

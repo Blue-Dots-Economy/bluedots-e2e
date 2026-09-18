@@ -19,6 +19,7 @@ import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepte
 import { anOrganisationJoinsTheNetwork } from './aggregator/an_organisation_joins_the_network.js';
 import { aCoordinatorJoinsAnOrganisation } from './aggregator/a_coordinator_joins_an_organisation.js';
 import { aBulkUploadOnboardsParticipants } from './aggregator/a_bulk_upload_onboards_participants.js';
+import { aBadRowIsReportedAndCreatesNobody } from './aggregator/a_bad_row_is_reported_and_creates_nobody.js';
 
 /**
  * Every journey the suite knows about.
@@ -52,6 +53,7 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   anOrganisationJoinsTheNetwork,
   aCoordinatorJoinsAnOrganisation,
   aBulkUploadOnboardsParticipants,
+  aBadRowIsReportedAndCreatesNobody,
   // consent-and-data-disclosure (continued)
   aRequestHidesContactDetailsUntilAccepted,
   anAcceptedRequestRevealsContactDetails,

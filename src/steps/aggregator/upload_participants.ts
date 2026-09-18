@@ -56,9 +56,11 @@ export function buildRow(
  * object-storage image ships curl (its own healthcheck uses it), so the URL
  * goes out exactly as it was minted.
  */
-export const uploadParticipants = (spec: { as: string }) =>
+export const uploadParticipants = (spec: { as: string; withAnInvalidRow?: boolean }) =>
   step({
-    label: `Uploaded a file of ${spec.as.replace(/_/g, ' ')} participants`,
+    label: spec.withAnInvalidRow
+      ? `Uploaded a file of ${spec.as.replace(/_/g, ' ')} participants, one of them incomplete`
+      : `Uploaded a file of ${spec.as.replace(/_/g, ' ')} participants`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const execInStack = requireContext(ctx.execInStack, 'the stack network');
@@ -93,8 +95,32 @@ export const uploadParticipants = (spec: { as: string }) =>
         // afterwards, and the template carries no email column at all.
         phone,
       };
-      const csv = buildRow(header, itemState);
+      let csv = buildRow(header, itemState);
       state.bulkPhone = phone;
+
+      if (spec.withAnInvalidRow) {
+        // A second row missing a REQUIRED field, and nothing else. The
+        // point is a row the aggregator's own validation rejects on its
+        // way in, not one signals refuses later: a rejection that reaches
+        // signals at all is a different assertion, and a different bug.
+        const required = (itemSchema.required ?? [])[0];
+        if (!required) {
+          throw new Error(
+            `STEP_FAILED: ${target.network}'s "${spec.as}" schema requires no field, so no ` +
+              `row can be made invalid by omission and this journey would assert nothing.`,
+          );
+        }
+        const invalidPhone = phoneFromSeed(seed, 'bulk-invalid');
+        const invalid = buildRow(header, {
+          ...itemState,
+          phone: invalidPhone,
+          [required]: '',
+        });
+        // Header once, then both rows.
+        csv = `${csv}${invalid.split('\n')[1]}\n`;
+        state.bulkInvalidPhone = invalidPhone;
+        state.bulkInvalidField = required;
+      }
 
       const created = await ctx.http(`${ctx.endpoints.aggregatorApi}/v1/bulk-uploads`, {
         method: 'POST',

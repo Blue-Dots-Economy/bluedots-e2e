@@ -25,6 +25,7 @@ export { signInAsCoordinator } from './aggregator/sign_in_as_coordinator.js';
 export { uploadParticipants } from './aggregator/upload_participants.js';
 export { waitUntilBulkFinished } from './aggregator/wait_for_bulk.js';
 export { expectParticipantInNetwork } from './aggregator/expect_participant_in_network.js';
+export { expectRowRejected } from './aggregator/expect_row_rejected.js';
 export { waitUntilThisItemIndexed } from './awaiters/wait_for_indexing.js';
 export { waitUntilThisItemRemoved } from './awaiters/wait_for_removal.js';
 export { expectFoundInSearch } from './projections/search_results.js';
