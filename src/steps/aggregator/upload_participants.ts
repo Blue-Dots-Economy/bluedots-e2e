@@ -99,27 +99,39 @@ export const uploadParticipants = (spec: { as: string; withAnInvalidRow?: boolea
       state.bulkPhone = phone;
 
       if (spec.withAnInvalidRow) {
-        // A second row missing a REQUIRED field, and nothing else. The
-        // point is a row the aggregator's own validation rejects on its
-        // way in, not one signals refuses later: a rejection that reaches
-        // signals at all is a different assertion, and a different bug.
-        const required = (itemSchema.required ?? [])[0];
-        if (!required) {
+        // A second row carrying the WRONG TYPE in a required field, and
+        // nothing else wrong.
+        //
+        // Not a blank one: an empty cell reads as "column not filled in",
+        // which this pipeline accepts -- the first attempt blanked a
+        // required name and the whole file passed, so the journey asserted
+        // nothing and blamed a missing errors.csv for it. A number field
+        // carrying letters cannot be read as absent by anybody.
+        //
+        // Rejected by the aggregator on the way IN, deliberately. A row
+        // that gets as far as signals is a different assertion and a
+        // different bug.
+        const numeric = (itemSchema.required ?? []).find(
+          (name) => (itemSchema.properties?.[name] as { type?: string })?.type === 'integer'
+            || (itemSchema.properties?.[name] as { type?: string })?.type === 'number',
+        );
+        if (!numeric) {
           throw new Error(
-            `STEP_FAILED: ${target.network}'s "${spec.as}" schema requires no field, so no ` +
-              `row can be made invalid by omission and this journey would assert nothing.`,
+            `STEP_FAILED: ${target.network}'s "${spec.as}" schema requires no numeric field, ` +
+              `so a row cannot be made invalid by type here and this journey would assert ` +
+              `nothing. Pick another way to break it rather than letting it pass.`,
           );
         }
         const invalidPhone = phoneFromSeed(seed, 'bulk-invalid');
         const invalid = buildRow(header, {
           ...itemState,
           phone: invalidPhone,
-          [required]: '',
+          [numeric]: 'not-a-number',
         });
         // Header once, then both rows.
         csv = `${csv}${invalid.split('\n')[1]}\n`;
         state.bulkInvalidPhone = invalidPhone;
-        state.bulkInvalidField = required;
+        state.bulkInvalidField = numeric;
       }
 
       const created = await ctx.http(`${ctx.endpoints.aggregatorApi}/v1/bulk-uploads`, {

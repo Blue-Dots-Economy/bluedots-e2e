@@ -27,6 +27,28 @@ export const expectRowRejected = () =>
       const phone = requireState(state, 'bulkInvalidPhone');
       const field = requireState(state, 'bulkInvalidField');
 
+      // The counts first. errors.csv is absent when NOTHING failed, so
+      // reading it before checking that something did makes a row the
+      // pipeline happily accepted look like a reporting bug -- which is
+      // exactly how the first attempt at this journey misread itself.
+      const record = await ctx.http(
+        `${ctx.endpoints.aggregatorApi}/v1/bulk-uploads/${uploadId}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      const counts = (await record.json()) as {
+        passed?: number;
+        failed?: number;
+        total_rows?: number | null;
+      };
+      if (!counts.failed) {
+        throw new Error(
+          `STEP_FAILED: the upload rejected nothing (${counts.passed ?? 0} passed, ` +
+            `${counts.failed ?? 0} failed, of ${counts.total_rows ?? 0}). The row built to be ` +
+            `invalid was accepted, so this journey is asserting nothing -- fix the row, not ` +
+            `the assertion.`,
+        );
+      }
+
       const errors = await readRowErrors(ctx, uploadId, token);
       if (!errors.ok) {
         throw new Error(
