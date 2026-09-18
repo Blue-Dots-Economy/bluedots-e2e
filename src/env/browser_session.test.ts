@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CookieJar, loginFormAction, rebaseForTest as rebase } from './browser_session.js';
+import { CookieJar, describePage, loginFormAction, rebaseForTest as rebase } from './browser_session.js';
 
 describe('CookieJar', () => {
   test('sends back what a server set, which is the whole binding', () => {
@@ -91,5 +91,33 @@ describe('rebase', () => {
     expect(out.pathname).toBe('/realms/r/x');
     expect(out.searchParams.get('code')).toBe('abc');
     expect(out.searchParams.get('state')).toBe('s');
+  });
+});
+
+describe('describePage', () => {
+  test('drops the stylesheet, which is otherwise the whole excerpt', () => {
+    // A refused login came back reading "--bd-primary: #0074ff": the themed
+    // style block is longer than any excerpt, so stripping tags alone
+    // yields CSS and none of the message.
+    const html = `<html><head><style>:root { --bd-primary: #0074ff; --x: #005ecc; }</style></head>
+      <body><span>Invalid username or password.</span></body></html>`;
+
+    expect(describePage(html)).toContain('Invalid username or password.');
+    expect(describePage(html)).not.toContain('bd-primary');
+  });
+
+  test('lists what the form is asking for, since that is usually the reason', () => {
+    // A page wanting a field this flow does not send is the likeliest cause
+    // of it re-serving itself -- a one-time code, say, rather than a
+    // password.
+    const html = `<form><input name="username"><input name="code"><input name="_csrf"></form>`;
+
+    expect(describePage(html)).toContain('form fields: username, code');
+    // Framework fields are noise, not a question being asked.
+    expect(describePage(html)).not.toContain('_csrf');
+  });
+
+  test('says so when there is no form at all', () => {
+    expect(describePage('<html><body>Page expired</body></html>')).toContain('no inputs');
   });
 });

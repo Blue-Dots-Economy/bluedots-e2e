@@ -52,7 +52,7 @@ export function loginFormAction(html: string): string {
     throw new Error(
       `LOGIN_FAILED: no login form on the page Keycloak served, so there is nothing to ` +
         `submit credentials to. It answers 200 for its error pages too, and this one ` +
-        `said: ${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}`,
+        `said: ${describePage(html)}`,
     );
   }
   // The action is a URL inside an HTML attribute, so its query separators
@@ -98,6 +98,33 @@ function rebase(url: string, endpoints: { signalsApi: string; keycloak: string }
   target.protocol = base.protocol;
   target.host = base.host;
   return target.toString();
+}
+
+/**
+ * What a Keycloak page is actually telling us.
+ *
+ * Its pages carry a themed `<style>` block big enough to fill any excerpt,
+ * so stripping tags alone yields CSS -- which is how a refused login came
+ * back as "--bd-primary: #0074ff". Style and script go first, then the
+ * fields the form wants are listed: a page asking for something this flow
+ * does not send is the likeliest reason it re-served itself.
+ */
+export function describePage(html: string): string {
+  const text = html
+    .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const fields = [...html.matchAll(/<input[^>]*\sname="([^"]+)"/gi)]
+    .map((m) => m[1])
+    .filter((name) => name && !/^_/.test(name));
+
+  return [
+    text.slice(0, 400),
+    fields.length ? `[form fields: ${[...new Set(fields)].join(', ')}]` : '[form has no inputs]',
+  ].join(' ');
 }
 
 /** Exported for its own tests; the flow uses it through `go`. */
@@ -185,7 +212,7 @@ export async function signInThroughTheFrontDoor(opts: {
       `LOGIN_FAILED: Keycloak did not redirect back after the credentials were submitted, ` +
         `which is what it does when it refuses them or wants something else first -- an ` +
         `unverified email, an OTP, a profile it considers incomplete. It said: ` +
-        `${submitted.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}`,
+        `${describePage(submitted.body)}`,
     );
   }
 
