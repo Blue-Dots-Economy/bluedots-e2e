@@ -111,15 +111,29 @@ export const uploadParticipants = (spec: { as: string; withAnInvalidRow?: boolea
         // Rejected by the aggregator on the way IN, deliberately. A row
         // that gets as far as signals is a different assertion and a
         // different bug.
-        const numeric = (itemSchema.required ?? []).find(
-          (name) => (itemSchema.properties?.[name] as { type?: string })?.type === 'integer'
-            || (itemSchema.properties?.[name] as { type?: string })?.type === 'number',
-        );
+        // Any numeric field, required or not -- and NOT the phone, which
+        // is how the row is looked up afterwards to prove nobody was
+        // created from it. An instance narrows what the dot declares:
+        // blue_dot requires name, location, age and phone, while
+        // blue_dot/ka-dhwd requires only name and phone, so a rule that
+        // insisted on a required numeric field found none there.
+        const numericFields = Object.entries(itemSchema.properties ?? {})
+          .filter(([name, prop]) => {
+            const type = (prop as { type?: string })?.type;
+            return name !== 'phone' && (type === 'integer' || type === 'number');
+          })
+          .map(([name]) => name);
+        // Prefer one the schema requires: an optional field is only
+        // type-checked when present, and a pipeline that skips absent
+        // optionals entirely would drop the breakage with them.
+        const numeric =
+          (itemSchema.required ?? []).find((name) => numericFields.includes(name)) ??
+          numericFields[0];
         if (!numeric) {
           throw new Error(
-            `STEP_FAILED: ${target.network}'s "${spec.as}" schema requires no numeric field, ` +
+            `STEP_FAILED: ${target.network}'s "${spec.as}" schema declares no numeric field, ` +
               `so a row cannot be made invalid by type here and this journey would assert ` +
-              `nothing. Pick another way to break it rather than letting it pass.`,
+              `nothing. Break it another way rather than letting it pass.`,
           );
         }
         const invalidPhone = phoneFromSeed(seed, 'bulk-invalid');
