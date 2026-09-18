@@ -185,11 +185,25 @@ jobs:
       SIGNALS_SEARCH_TAG: ${{ inputs.signals_search_tag || inputs.tag || github.ref_name }}
       NOTIFICATION_SERVICE_TAG: ${{ inputs.notification_service_tag || inputs.tag || github.ref_name }}
     steps:
-      - name: check the release tag looks like one
+      # A release tag OR a branch. Verifying a change before it is cut is
+      # ordinary work, and refusing it here never stopped anyone -- it
+      # pushed them to pass the branch through the per-service tag inputs
+      # instead, where the report's headline still read "release". The
+      # hazard was always the LABEL, and the renderers now take the word
+      # from the source: release, branch or commit.
+      #
+      # What is still refused is anything that cannot be both an image
+      # reference and a git ref, because it becomes both, unquoted.
+      - name: check the source is one thing or the other
         run: |
-          if ! printf '%s' "$RESOLVED_TAG" | grep -Eq '^20[0-9]{4}-s[0-9]+-rc[0-9]+$'; then
-            echo "::error::RESOLVED_TAG='$RESOLVED_TAG' is not a release tag. This workflow verifies a release candidate; it cannot do that against a branch."
+          if ! printf '%s' "$RESOLVED_TAG" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "::error::RESOLVED_TAG='$RESOLVED_TAG' is not usable as an image tag or a git ref."
             exit 1
+          fi
+          if printf '%s' "$RESOLVED_TAG" | grep -Eq '^20[0-9]{4}-s[0-9]+-rc[0-9]+$'; then
+            echo "verifying release candidate $RESOLVED_TAG"
+          else
+            echo "::notice::verifying BRANCH '$RESOLVED_TAG', not a release candidate. The report says so; do not promote a candidate on this run."
           fi
           # The target came from the prepare job, which validated it
           # against the discovered set, so there is no allow-list here to

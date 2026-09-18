@@ -34,10 +34,19 @@ describe('releaseTagFromEnv', () => {
     expect(releaseTagFromEnv({})).toBeNull();
   });
 
-  test('refuses a value that is not a release tag', () => {
-    // A branch name here would boot that branch's images while the report
-    // says a release was verified.
-    expect(() => releaseTagFromEnv({ JOURNEY_RELEASE_TAG: 'develop' })).toThrow(
+  test('accepts a branch, because verifying a change before it is cut is ordinary', () => {
+    // This used to throw. The hazard it guarded is real -- a branch boots
+    // that branch's images -- but it is a LABELLING hazard, and refusing the
+    // value did not stop anyone: it pushed them to pass the branch through
+    // the per-service tag inputs instead, where the headline still said
+    // "release". describeSource handles it where it belongs.
+    expect(releaseTagFromEnv({ JOURNEY_RELEASE_TAG: 'main' })).toBe('main');
+    expect(releaseTagFromEnv({ JOURNEY_RELEASE_TAG: 'feat/x' })).toBe('feat/x');
+  });
+
+  test('refuses a value that cannot be an image reference or a git ref', () => {
+    // It reaches both, unquoted.
+    expect(() => releaseTagFromEnv({ JOURNEY_RELEASE_TAG: 'main; rm -rf /' })).toThrow(
       /JOURNEY_RELEASE_TAG/,
     );
   });

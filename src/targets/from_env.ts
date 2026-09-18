@@ -24,26 +24,35 @@ export function targetFromEnv(env: NodeJS.ProcessEnv | Record<string, string | u
 const RELEASE_TAG = /^20\d{4}-s\d+-rc\d+$/;
 
 /**
- * Which release a run is verifying.
+ * What a run is verifying -- a release candidate, or a branch.
  *
  * Without this the stack tests fall through to DEFAULT_TAG and boot
  * `:develop`, so a run triggered by a release tag would verify whatever
  * develop pointed at that minute and the release would be promoted on an
  * unrelated build's result.
  *
- * A non-release value is rejected rather than passed through: a branch name
- * here boots that branch's images while the report says a release was
- * verified.
+ * A branch is accepted, and used to be refused. The refusal was guarding a
+ * real hazard -- a branch name here boots that branch's images while the
+ * report claims a release was verified -- but it was guarding it in the
+ * wrong place: verifying a change BEFORE it is cut is ordinary work, and
+ * blocking it did not stop anyone, it just pushed them to pass the branch
+ * through the per-service tag inputs where the headline still said
+ * "release". The hazard is the LABEL, so the label is where it is now
+ * handled; see describeSource.
+ *
+ * What stays rejected is a value with whitespace or a shell metacharacter
+ * in it. This ends up in an image reference and a git ref.
  */
 export function releaseTagFromEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
 ): string | null {
   const raw = env.JOURNEY_RELEASE_TAG?.trim();
   if (!raw) return null;
-  if (!RELEASE_TAG.test(raw)) {
+  if (!RELEASE_TAG.test(raw) && !/^[A-Za-z0-9._\/-]+$/.test(raw)) {
     throw new Error(
-      `JOURNEY_RELEASE_TAG must look like 202609-s1-rc1, got "${raw}". ` +
-        `Leave it unset to use the default per-service tags.`,
+      `JOURNEY_RELEASE_TAG must be a release tag like 202609-s1-rc1, or a plain branch or ` +
+        `commit ref. Got "${raw}", which is neither -- it reaches an image reference and a ` +
+        `git ref, so it cannot carry whitespace or shell characters.`,
     );
   }
   return raw;
