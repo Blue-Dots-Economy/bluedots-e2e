@@ -58,6 +58,14 @@ export function renderOverlay(opts: {
   // silently ("category not configured -- do not fail onboarding"), and the
   // profile stays draft: invisible to search, with a 200 on the way in.
   const targetDir = target.networkConfigPath.replace(/\/[^/]+$/, '');
+  // The aggregator keeps config per INSTANCE where one exists, not per dot:
+  // blue_dot/ka-dhwd has its own schemas directory and its own
+  // aggregator.config.yaml. Pointing at the dot's instead loads a different
+  // network binding and a different schema root than the instance under
+  // test -- and blue_dot's own binding still points at another repo's
+  // examples/ directory, so the two ends disagreed about what a valid row
+  // even was.
+  const aggregatorConfigDir = target.instance ? `${target.dot}/${target.instance}` : target.dot;
   const networkMount = `${targetDir}:/networks:ro`;
 
   // Merged, not appended: an override repeating a timing key would emit
@@ -376,8 +384,8 @@ ${
       PUBLIC_API_URL: http://localhost:${AGGREGATOR_API_PORT}
       PUBLIC_PORTAL_URL: http://localhost:3100
       PUBLIC_LINK_BASE_URL: http://localhost:3100
-      SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
-      AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      SCHEMA_ROOT_DIR: /app/config/${aggregatorConfigDir}/schemas
+      AGGREGATOR_CONFIG_PATH: /app/config/${aggregatorConfigDir}/aggregator.config.yaml
       # Overrides the URL in the shipped YAML, which points at another
       # repo's examples/ directory on another branch. Same file signals
       # reads, same pinned ref.
@@ -548,8 +556,8 @@ ${reset('signals-api')}
       SMTP_FROM: no-reply@journey.test
       SMTP_USER: ""
       SMTP_PASSWORD: ""
-      SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
-      AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      SCHEMA_ROOT_DIR: /app/config/${aggregatorConfigDir}/schemas
+      AGGREGATOR_CONFIG_PATH: /app/config/${aggregatorConfigDir}/aggregator.config.yaml
       # Overrides the URL in the shipped YAML, which points at another
       # repo's examples/ directory on another branch. Same file signals
       # reads, same pinned ref.
