@@ -19,7 +19,7 @@ export { respondToRequest } from './actors/respond_to_request.js';
 export { registerOrganisation } from './aggregator/register_organisation.js';
 export { registerCoordinator } from './aggregator/register_coordinator.js';
 export { approveRegistration } from './aggregator/approve_registration.js';
-export { expectOwnerActivated } from './aggregator/expect_owner_activated.js';
+export { expectOwnerProvisioned } from './aggregator/expect_owner_provisioned.js';
 export { expectKnownToNetwork } from './aggregator/expect_known_to_network.js';
 export { waitUntilThisItemIndexed } from './awaiters/wait_for_indexing.js';
 export { waitUntilThisItemRemoved } from './awaiters/wait_for_removal.js';

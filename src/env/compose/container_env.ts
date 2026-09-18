@@ -67,6 +67,10 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     'SIGNALSTACK_AUTH_MODE',
     'SIGNALSTACK_CLIENT_ID',
     'SIGNALSTACK_CLIENT_SECRET',
+    // Sent as x-acting-org-id on the upsert. Unset, the writer answers
+    // SIGNALSTACK_CONFIG_MISSING and EVERY coordinator approval aborts --
+    // announced once, at warn level, at boot.
+    'SIGNALSTACK_ACTING_ORG_ID',
   ],
 };
 

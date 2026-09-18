@@ -86,6 +86,25 @@ export const AGGREGATOR_API_PORT = 4000;
 /** Where the aggregator sends a registration for review. */
 export const NETWORK_ADMIN_EMAIL = 'network-admin@journey.test';
 
+/**
+ * The signals organisation the aggregator acts as.
+ *
+ * Fixed, and pre-created, for the same reason the search caller key is
+ * fixed: aggregator-api reads it from its environment at BOOT, while the
+ * row it names can only be created once signals' schema exists. The seed
+ * script that would otherwise mint it generates `org_<uuid>` -- unknowable
+ * in advance -- but it is keyed on the SLUG and returns an existing row
+ * untouched, so pre-creating this one makes the id knowable without
+ * diverging from what the product's own seeding produces.
+ *
+ * Without it the writer answers SIGNALSTACK_CONFIG_MISSING and every
+ * coordinator approval aborts with "could not register the aggregator with
+ * the signalstack network".
+ */
+export const SIGNALS_ACTING_ORG_ID = 'org_journey_aggregator_dpg';
+/** Slug of that organisation. Signals resolves a service caller BY it. */
+export const SIGNALS_ACTING_ORG_SLUG = 'aggregator-dpg';
+
 export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
   return {
     ...TEST_SECRETS,
@@ -159,8 +178,13 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // id. Leaving this `apikey` (the default) would take the better-auth path
     // the fleet is retiring.
     SIGNALSTACK_AUTH_MODE: 'bearer',
-    SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+    SIGNALSTACK_CLIENT_ID: SIGNALS_ACTING_ORG_SLUG,
     SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
+    // Sent as x-acting-org-id on the aggregator upsert. Unset, the writer
+    // answers SIGNALSTACK_CONFIG_MISSING and every coordinator approval
+    // aborts -- with a warn-level line at boot saying exactly that, which
+    // nobody reads.
+    SIGNALSTACK_ACTING_ORG_ID: SIGNALS_ACTING_ORG_ID,
 
     // Without all three, getNotificationClient() returns undefined and the
     // API silently sends nothing -- which is what made the notification

@@ -5,6 +5,8 @@ import {
   AGGREGATOR_DB,
   KEYCLOAK_ISSUER,
   NOTIFICATION_PORT,
+  SIGNALS_ACTING_ORG_ID,
+  SIGNALS_ACTING_ORG_SLUG,
 } from './stack_env.js';
 import { resetFor } from './base_services.js';
 
@@ -205,6 +207,36 @@ ${
         psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -c
         "CREATE DATABASE ${AGGREGATOR_DB}"
 
+  # The signals organisation the aggregator acts as, created with a KNOWN
+  # id. aggregator-api reads that id from its environment at boot, and the
+  # row can only exist once signals' schema does -- the same ordering
+  # problem the search caller key has.
+  #
+  # Idempotent on the unique slug, and shaped exactly as signals' own
+  # seeding shapes it: that script looks the row up BY slug and returns it
+  # untouched when present, so this makes the id knowable without producing
+  # anything the product would not have produced itself.
+  #
+  # type matters as much as the id. resolveServiceAccount admits only a
+  # service org type, so a row without one authenticates nobody.
+  signals-org-init:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      signals-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: \${POSTGRES_PASSWORD}
+    command:
+      - sh
+      - -c
+      - >-
+        psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -v ON_ERROR_STOP=1 -c
+        "INSERT INTO organization (id, slug, name, type, created_at)
+         VALUES ('${SIGNALS_ACTING_ORG_ID}', '${SIGNALS_ACTING_ORG_SLUG}',
+                 '${SIGNALS_ACTING_ORG_SLUG}', 'network_service', now())
+         ON CONFLICT (slug) DO NOTHING"
+
   # NOT in the base compose -- signals-dpg's local-setup runs signals only.
   # Defined here in full, like notification-service above.
   #
@@ -219,6 +251,10 @@ ${
       - "0:${AGGREGATOR_API_PORT}"
     depends_on:
       aggregator-db-init:
+        condition: service_completed_successfully
+      # For the acting org row, not for the schema: an approval that cannot
+      # name an organisation aborts.
+      signals-org-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -268,6 +304,7 @@ ${
       SIGNALSTACK_BASE_URL: \${SIGNALSTACK_BASE_URL}
       SIGNALSTACK_CLIENT_ID: \${SIGNALSTACK_CLIENT_ID}
       SIGNALSTACK_CLIENT_SECRET: \${SIGNALSTACK_CLIENT_SECRET}
+      SIGNALSTACK_ACTING_ORG_ID: \${SIGNALSTACK_ACTING_ORG_ID}
       SIGNALSTACK_ITEM_NETWORK: \${AGGREGATOR_NETWORK}
     volumes:
       - ${aggregatorRoot}/config:/app/config:ro

@@ -29,6 +29,7 @@ const aggregatorEnv = {
   SIGNALSTACK_AUTH_MODE: 'bearer',
   SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
   SIGNALSTACK_CLIENT_SECRET: 's',
+  SIGNALSTACK_ACTING_ORG_ID: 'org_x',
 };
 
 describe('assertContainerEnv', () => {
