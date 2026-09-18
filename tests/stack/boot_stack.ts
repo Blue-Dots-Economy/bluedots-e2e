@@ -260,6 +260,7 @@ async function seedBootedStack(
     await admin.markReadyToSignIn(stackEnv.KEYCLOAK_REALM!, found.id);
     return signInThroughTheFrontDoor({
       signalsApi: env.endpoints.signalsApi,
+      keycloak: env.endpoints.keycloak,
       username: email,
       password,
       fetcher: opts.http ?? fetch,

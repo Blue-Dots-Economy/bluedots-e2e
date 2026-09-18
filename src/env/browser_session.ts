@@ -68,6 +68,41 @@ export type BrowserSession = {
   csrfToken: string;
 };
 
+/**
+ * Put a URL back on a host this process can reach.
+ *
+ * Every service in the stack addresses its peers by compose name --
+ * `keycloak:8080` is what signals redirects to, because that is the issuer
+ * it validates and the only host every container can resolve. Nothing
+ * outside the network can, and a browser on a developer's machine has the
+ * same problem: the local setup instructions have you add `127.0.0.1
+ * keycloak` to /etc/hosts for exactly this reason.
+ *
+ * Rewriting only the origin is safe. Keycloak does not sign the authorize
+ * URL, and it validates `redirect_uri` against the client's allow-list
+ * rather than against the host the request arrived on -- and the `iss` in
+ * the resulting token stays pinned by KC_HOSTNAME whichever way we came in,
+ * which is the value signals actually checks.
+ *
+ * Routed by path rather than by host: the API and Keycloak each own an
+ * unmistakable prefix, and matching on hosts would need a table of every
+ * name a service might use for itself.
+ */
+function rebase(url: string, endpoints: { signalsApi: string; keycloak: string }): string {
+  const target = new URL(url);
+  const base = new URL(
+    target.pathname.startsWith('/realms/') || target.pathname.startsWith('/resources/')
+      ? endpoints.keycloak
+      : endpoints.signalsApi,
+  );
+  target.protocol = base.protocol;
+  target.host = base.host;
+  return target.toString();
+}
+
+/** Exported for its own tests; the flow uses it through `go`. */
+export const rebaseForTest = rebase;
+
 /** Follows one redirect at a time, so every Set-Cookie on the way is kept. */
 async function hop(
   fetcher: typeof fetch,
@@ -75,11 +110,21 @@ async function hop(
   jar: CookieJar,
   init: RequestInit = {},
 ): Promise<{ status: number; location: string | null; body: string; url: string }> {
-  const res = await fetcher(url, {
-    ...init,
-    redirect: 'manual',
-    headers: { ...(init.headers ?? {}), ...(jar.header() ? { cookie: jar.header() } : {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetcher(url, {
+      ...init,
+      redirect: 'manual',
+      headers: { ...(init.headers ?? {}), ...(jar.header() ? { cookie: jar.header() } : {}) },
+    });
+  } catch (err) {
+    // Node's fetch throws a bare "fetch failed" for everything from an
+    // unresolvable host to a refused connection, so the URL is the only
+    // part of the diagnosis anybody can act on.
+    throw new Error(
+      `LOGIN_FAILED: could not reach ${url} -- ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   // getSetCookie keeps them separate; a joined header cannot be split on
   // commas without breaking Expires dates.
   jar.absorb(res.headers.getSetCookie?.() ?? []);
@@ -102,16 +147,20 @@ async function hop(
  */
 export async function signInThroughTheFrontDoor(opts: {
   signalsApi: string;
+  /** Where THIS process reaches Keycloak; the redirects name its compose host. */
+  keycloak: string;
   username: string;
   password: string;
   fetcher?: typeof fetch;
 }): Promise<BrowserSession> {
   const fetcher = opts.fetcher ?? fetch;
   const jar = new CookieJar();
+  const endpoints = { signalsApi: opts.signalsApi, keycloak: opts.keycloak };
+  const go = (url: string, init?: RequestInit) => hop(fetcher, rebase(url, endpoints), jar, init);
 
   // 1. The API starts the flow and hands back a Keycloak authorize URL,
   //    setting the flow cookie that binds this browser to the exchange.
-  const started = await hop(fetcher, `${opts.signalsApi}/api/v1/auth/session/login`, jar);
+  const started = await go(`${opts.signalsApi}/api/v1/auth/session/login`);
   if (!started.location) {
     throw new Error(
       `LOGIN_FAILED: the login route answered ${started.status} instead of redirecting to the ` +
@@ -122,11 +171,11 @@ export async function signInThroughTheFrontDoor(opts: {
 
   // 2. Keycloak's login page. It may redirect once to attach its own
   //    session before serving HTML.
-  let page = await hop(fetcher, started.location, jar);
-  if (page.location) page = await hop(fetcher, page.location, jar);
+  let page = await go(started.location);
+  if (page.location) page = await go(page.location);
 
   // 3. Credentials, to wherever that page posts.
-  const submitted = await hop(fetcher, loginFormAction(page.body), jar, {
+  const submitted = await go(loginFormAction(page.body), {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username: opts.username, password: opts.password }).toString(),
@@ -141,11 +190,11 @@ export async function signInThroughTheFrontDoor(opts: {
   }
 
   // 4. Back at the API, which exchanges the code server-side and sets `sid`.
-  let back = await hop(fetcher, submitted.location, jar);
+  let back = await go(submitted.location);
   // It redirects on to the app afterwards; follow far enough to be sure the
   // cookie was set rather than stopping at the first hop.
   for (let i = 0; i < 3 && back.location && !jar.get('sid'); i++) {
-    back = await hop(fetcher, back.location, jar);
+    back = await go(back.location);
   }
   if (!jar.get('sid')) {
     throw new Error(

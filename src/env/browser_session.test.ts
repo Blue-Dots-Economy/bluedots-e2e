@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CookieJar, loginFormAction } from './browser_session.js';
+import { CookieJar, loginFormAction, rebaseForTest as rebase } from './browser_session.js';
 
 describe('CookieJar', () => {
   test('sends back what a server set, which is the whole binding', () => {
@@ -62,5 +62,34 @@ describe('loginFormAction', () => {
     expect(() => loginFormAction('<html><body>We are sorry ... page expired</body></html>')).toThrow(
       /no login form/i,
     );
+  });
+});
+
+describe('rebase', () => {
+  const endpoints = { signalsApi: 'http://localhost:55001', keycloak: 'http://localhost:55002' };
+
+  test('sends a realm URL to where this process reaches Keycloak', () => {
+    // signals redirects to the COMPOSE host, because that is the issuer it
+    // validates and the only name every container resolves. Nothing outside
+    // the network can reach it -- a browser on a developer's machine hits
+    // the same wall, which is why the local setup has you add a hosts entry.
+    expect(rebase('http://keycloak:8080/realms/bluedots/protocol/openid-connect/auth?x=1', endpoints))
+      .toBe('http://localhost:55002/realms/bluedots/protocol/openid-connect/auth?x=1');
+  });
+
+  test('sends an API URL back to the API, not to Keycloak', () => {
+    expect(rebase('http://localhost:2742/api/v1/auth/session/callback?code=c', endpoints))
+      .toBe('http://localhost:55001/api/v1/auth/session/callback?code=c');
+  });
+
+  test('keeps the path and the query untouched', () => {
+    // The query carries the authorization code and the PKCE state. Losing
+    // any of it fails the exchange with an error about the code rather than
+    // about the rewrite.
+    const out = new URL(rebase('http://keycloak:8080/realms/r/x?code=abc&state=s', endpoints));
+
+    expect(out.pathname).toBe('/realms/r/x');
+    expect(out.searchParams.get('code')).toBe('abc');
+    expect(out.searchParams.get('state')).toBe('s');
   });
 });
