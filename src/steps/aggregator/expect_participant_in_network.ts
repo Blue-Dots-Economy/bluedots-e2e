@@ -24,16 +24,20 @@ export const expectParticipantInNetwork = () =>
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const auth = requireContext(ctx.auth, 'authentication');
-      const email = requireState(state, 'bulkEmail');
+      // By phone, not by address: the seeker template declares no email
+      // column, so the number is the only identifier the row carries. The
+      // aggregator normalises it to E.164 on the way in.
+      const phone = requireState(state, 'bulkPhone');
+      const e164 = `+91${phone}`;
 
       const res = await ctx.http(
-        `${ctx.endpoints.signalsApi}/api/v1/admin/participant?email=${encodeURIComponent(email)}`,
+        `${ctx.endpoints.signalsApi}/api/v1/admin/participant?phone_number=${encodeURIComponent(e164)}`,
         { headers: { 'x-api-key': auth.apiKey, 'x-acting-org-id': auth.actingOrgId } },
       );
 
       if (res.status === 404) {
         throw new Error(
-          `STEP_FAILED: the network has no participant for ${email}, so the upload completed ` +
+          `STEP_FAILED: the network has no participant for ${e164}, so the upload completed ` +
             `and onboarded nobody. The aggregator's own record says completed either way -- an ` +
             `incomplete bearer config disables the push with one warn-level log line.`,
         );
@@ -45,13 +49,13 @@ export const expectParticipantInNetwork = () =>
       const participant = (await res.json()) as Participant;
       if (!participant.user_id) {
         throw new Error(
-          `STEP_FAILED: the lookup answered 200 with no user for ${email}, which is the same ` +
+          `STEP_FAILED: the lookup answered 200 with no user for ${e164}, which is the same ` +
             `outcome as a 404 and must not read as a pass.`,
         );
       }
       if (!participant.items?.length) {
         throw new Error(
-          `STEP_FAILED: ${email} exists in the network with no profile. The upload created the ` +
+          `STEP_FAILED: ${e164} exists in the network with no profile. The upload created the ` +
             `account and not the item it was carrying, so the row's data went nowhere.`,
         );
       }

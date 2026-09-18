@@ -43,8 +43,12 @@ export type JourneyState = {
   coordinatorToken?: string;
   /** The bulk upload a step created, for the steps that start and await it. */
   bulkUploadId?: string;
-  /** The address the uploaded row carries, which is how it is found afterwards. */
-  bulkEmail?: string;
+  /**
+   * The number the uploaded row carries, which is how the participant is
+   * found afterwards. A phone and not an address: the seeker template
+   * declares no email column at all.
+   */
+  bulkPhone?: string;
   /**
    * The mailbox as it stood before the triggering step.
    *
@@ -79,7 +83,7 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   coordinator: 'registerCoordinator',
   coordinatorToken: 'signInAsCoordinator',
   bulkUploadId: 'uploadParticipants',
-  bulkEmail: 'uploadParticipants',
+  bulkPhone: 'uploadParticipants',
   mailBaseline: 'the step that triggers the email',
   actionId: 'applyTo',
   signedUp: 'signUp',

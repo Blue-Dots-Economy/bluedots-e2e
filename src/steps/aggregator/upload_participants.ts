@@ -1,49 +1,43 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
+import { buildItemState } from '../../fixtures/item_state.js';
+import { phoneFromSeed } from './contact_details.js';
 import type { JourneyState } from '../../journey/state.js';
 
 type Created = { upload_id?: string; upload_url?: string; content_type?: string };
 
 /**
- * Make the template's example row this run's own.
+ * Build this run's row against the header the product gave us.
  *
- * The template is the product's own: header plus one worked example,
- * generated from the network's participant schema. Taking it rather than
- * hand-authoring two dozen columns means a schema change moves both sides
- * together -- a hand-written fixture would rot into something the parser
- * rejects, which is exactly what happened to the sample CSVs that used to
- * ship with the aggregator.
+ * The template supplies the COLUMNS -- generated from the network's own
+ * participant schema, so a schema change moves them without touching this
+ * -- and the values come from the same schema-driven generator every other
+ * journey uses. Both halves matter.
  *
- * Only the identifying columns are rewritten, and only when present: the
- * journey has to be able to find ITS participant afterwards, and an
- * unmodified example would collide with every other run's.
+ * Hand-authoring two dozen columns is how the sample CSVs that used to ship
+ * with the aggregator rotted into files its own parser rejected. But the
+ * template's example ROW cannot be uploaded either: it illustrates format,
+ * with values like "Example Location", and signals refuses it outright
+ * (INVALID_ITEM_STATE). Only the header is worth taking.
+ *
+ * Columns the generator has no value for are left empty, which is what an
+ * optional column is in a CSV.
  */
-export function personaliseRow(csv: string, seed: string): string {
-  const lines = csv.trim().split(/\r?\n/);
-  const [header, example] = lines;
-  if (!header || !example) {
-    throw new Error(
-      `STEP_FAILED: the template is not a header plus an example row; it has ` +
-        `${lines.length} line(s). Nothing can be built from it.`,
-    );
-  }
-
-  const columns = header.split(',').map((c) => c.trim());
-  const cells = example.split(',');
-  // Digits only and 10-15 long, or the contact schema rejects the row
-  // before anything reaches signals.
-  const digits = `9${seed.replace(/\D/g, '').padEnd(9, '0').slice(0, 9)}`;
-
-  const personalised = columns.map((column, i) => {
-    const cell = cells[i] ?? '';
-    const name = column.toLowerCase();
-    if (name.includes('email')) return `journey-bulk-${seed}@example.test`;
-    if (name.includes('phone') || name.includes('mobile')) return digits;
-    if (name === 'name' || name.includes('beneficiary')) return `Journey Bulk ${seed}`;
-    return cell;
+export function buildRow(
+  header: string,
+  itemState: Record<string, unknown>,
+  arrayDelimiter = '|',
+): string {
+  const columns = header.trim().split(',').map((c) => c.trim());
+  const cells = columns.map((column) => {
+    const value = itemState[column];
+    if (value === undefined || value === null) return '';
+    // The network declares its own delimiter; an array sent as "a,b" would
+    // be read as two columns and shift every field after it.
+    if (Array.isArray(value)) return value.join(arrayDelimiter);
+    return String(value);
   });
-
-  return `${header}\n${personalised.join(',')}\n`;
+  return `${columns.join(',')}\n${cells.join(',')}\n`;
 }
 
 /**
@@ -68,6 +62,7 @@ export const uploadParticipants = (spec: { as: string }) =>
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
       const execInStack = requireContext(ctx.execInStack, 'the stack network');
+      const target = requireContext(ctx.target, 'target');
       const token = requireState(state, 'coordinatorToken');
       const seed = requireState(state, 'seed');
       const authorized = { authorization: `Bearer ${token}` };
@@ -81,8 +76,25 @@ export const uploadParticipants = (spec: { as: string }) =>
           `STEP_FAILED: template ${template.status} ${await template.text()}`,
         );
       }
-      const csv = personaliseRow(await template.text(), seed);
-      state.bulkEmail = `journey-bulk-${seed}@example.test`;
+      const [header] = (await template.text()).trim().split(/\r?\n/);
+      if (!header) {
+        throw new Error('STEP_FAILED: the template carried no header row to build against.');
+      }
+
+      // The same generator, and the same schema, the aggregator-free
+      // journeys build their profiles from -- so a row that signals refuses
+      // is signals disagreeing with its own schema, not this fixture
+      // guessing.
+      const { itemSchema } = target.schemaFor(spec.as);
+      const phone = phoneFromSeed(seed, 'bulk');
+      const itemState = {
+        ...buildItemState(itemSchema as never, seed),
+        // Overridden after generation: this is how the participant is found
+        // afterwards, and the template carries no email column at all.
+        phone,
+      };
+      const csv = buildRow(header, itemState);
+      state.bulkPhone = phone;
 
       const created = await ctx.http(`${ctx.endpoints.aggregatorApi}/v1/bulk-uploads`, {
         method: 'POST',
