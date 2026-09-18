@@ -2,7 +2,7 @@ import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 
-type Created = { upload_id?: string; upload_url?: string };
+type Created = { upload_id?: string; upload_url?: string; content_type?: string };
 
 /**
  * Make the template's example row this run's own.
@@ -92,21 +92,34 @@ export const uploadParticipants = (spec: { as: string }) =>
       if (!created.ok) {
         throw new Error(`STEP_FAILED: create upload ${created.status} ${await created.text()}`);
       }
-      const { upload_id: uploadId, upload_url: uploadUrl } =
-        (await created.json()) as Created;
+      const {
+        upload_id: uploadId,
+        upload_url: uploadUrl,
+        content_type: contentType,
+      } = (await created.json()) as Created;
       if (!uploadId || !uploadUrl) {
         throw new Error('STEP_FAILED: the create returned no upload id or no presigned url.');
       }
       state.bulkUploadId = uploadId;
 
-      // printf, not a heredoc: the body is built from the template and a
-      // seed, so it carries no quotes or backslashes, and printf keeps the
+      // Written to a file first, and uploaded FROM it. Piping into
+      // `--upload-file -` makes curl stream with chunked encoding and no
+      // Content-Length, which S3 rejects outright (MissingContentLength) --
+      // the object store needs the size up front.
+      //
+      // printf, not a heredoc: the body comes from the template and a seed,
+      // so it carries no quotes or backslashes, and printf keeps the
       // newlines the parser needs without a second layer of escaping.
       const body = csv.replace(/'/g, '').replace(/\n/g, '\\n');
       const out = await execInStack('minio', [
         'sh',
         '-c',
-        `printf '%b' '${body}' | curl -sS -X PUT --upload-file - -w '%{http_code}' '${uploadUrl}'`,
+        `printf '%b' '${body}' > /tmp/journey.csv && ` +
+          `curl -sS -X PUT --upload-file /tmp/journey.csv ` +
+          // The type the presign was issued for. Sending a different one
+          // fails the signature when the presign covered it.
+          `-H 'Content-Type: ${contentType ?? 'text/csv'}' ` +
+          `-w '%{http_code}' '${uploadUrl}'`,
       ]);
       if (!/(^|\D)20\d(\s|$)/.test(out.trim())) {
         throw new Error(
