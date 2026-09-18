@@ -91,8 +91,11 @@ export const approveRegistration = (spec: { tier: Tier }) =>
       if (spec.tier === 'coordinator') {
         // The coordinator's approval is the only one that reaches signals,
         // and it ABORTS when that call fails -- leaving the record pending
-        // and the link re-clickable. A page that says so is a 200, so the
-        // status code alone would read that refusal as a success.
+        // and the link re-clickable. That abort answers 503, so the check
+        // above already catches it; this is a second reading of the page
+        // itself, because every other outcome on this route is rendered
+        // HTML with a status chosen per branch, and a future branch that
+        // reports the same refusal as a 200 would otherwise pass.
         if (/still pending|could not register|try again/i.test(page)) {
           throw new Error(
             `STEP_FAILED: the approval was refused and the record left pending. The network ` +
