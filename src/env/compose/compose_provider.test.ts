@@ -89,6 +89,7 @@ const STUB_ADMIN = async () => ({
   findUsersByEmail: async () => [],
   realmRolesOf: async () => [],
   groupsOf: async () => [],
+  markReadyToSignIn: async () => {},
 });
 
 const DEPS = (run: (a: string[]) => Promise<string>) => ({

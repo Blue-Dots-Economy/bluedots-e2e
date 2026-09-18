@@ -29,17 +29,24 @@ async function readContactDetails(
   viewer: string,
 ): Promise<{ status: number; body: ContactDetailsResponse; raw: string }> {
   const state = ctx.state as JourneyState;
-  const keys = requireContext(ctx.keys, 'participant credentials');
   const actionId = requireState(state, 'actionId');
   const profile = requireState(state, 'profiles')[viewer];
   if (!profile) {
     throw new Error(`STEP_FAILED: no "${viewer}" profile in this journey to view as.`);
   }
 
-  const apiKey = await keys.issueFor(profile.userId, `actor-${viewer}`);
+  const session = state.sessions?.[viewer];
+  const auth: Record<string, string> = session
+    ? { cookie: session.cookie }
+    : {
+        'x-api-key': await requireContext(ctx.keys, 'participant credentials').issueFor(
+          profile.userId,
+          `actor-${viewer}`,
+        ),
+      };
   const res = await ctx.http(
     `${ctx.endpoints.signalsApi}/api/v1/action/${actionId}/contact-details`,
-    { headers: { 'x-api-key': apiKey } },
+    { headers: auth },
   );
   const raw = await res.text();
   return { status: res.status, body: JSON.parse(raw || '{}') as ContactDetailsResponse, raw };

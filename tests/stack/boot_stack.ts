@@ -31,6 +31,7 @@ import { createParticipantKeys } from '../../src/env/participant_keys.js';
 import { createMailProbe } from '../../src/awaiters/mailbox.js';
 import { createNetworkOrgs } from '../../src/awaiters/network_orgs.js';
 import { obtainServiceToken } from '../../src/seed/service_token.js';
+import { signInThroughTheFrontDoor } from '../../src/env/browser_session.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 
@@ -239,6 +240,32 @@ async function seedBootedStack(
     );
   };
 
+  // A person's own session with signals, through the front door.
+  //
+  // Self-signup leaves the identity unverified and with no password, and
+  // Keycloak will not complete a login for either. Both are cleared here,
+  // through Keycloak's own admin API -- the same affordance the seeded
+  // participants already use, for the same reason, and nothing the services
+  // themselves are aware of.
+  const signInToSignals = async (email: string) => {
+    const [found] = await admin.findUsersByEmail(stackEnv.KEYCLOAK_REALM!, email);
+    if (!found) {
+      throw new Error(
+        `STEP_FAILED: no realm identity for ${email}. Signing up creates one, so this means ` +
+          `the signup never happened.`,
+      );
+    }
+    const password = `journey-${found.id}`;
+    await admin.setPassword(stackEnv.KEYCLOAK_REALM!, found.id, password);
+    await admin.markReadyToSignIn(stackEnv.KEYCLOAK_REALM!, found.id);
+    return signInThroughTheFrontDoor({
+      signalsApi: env.endpoints.signalsApi,
+      username: email,
+      password,
+      fetcher: opts.http ?? fetch,
+    });
+  };
+
   // The realm is where an approval's whole effect lands -- enabled, a role,
   // a group -- and none of it is readable over any service's HTTP API.
   const realmUser = async (email: string) => {
@@ -303,6 +330,7 @@ async function seedBootedStack(
       networkOrgs,
       realmUser,
       signInAs,
+      signInToSignals,
       execInStack: (service, command) => provider.exec(service, command),
       serviceToken,
       auth: {

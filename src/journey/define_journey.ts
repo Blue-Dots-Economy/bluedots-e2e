@@ -72,6 +72,23 @@ export type StepContext = {
    */
   signInAs?: (email: string) => Promise<string>;
   /**
+   * Signs a PERSON in to signals, the way a person signs in.
+   *
+   * A bearer token is not an option here: signals refuses a human one
+   * however valid it is, because a browser session is the `sid` cookie and
+   * nothing else. So this completes the real authorization-code flow, which
+   * is also what provisions them -- the local user row appears at first
+   * login, keyed on the Keycloak subject.
+   *
+   * The harness sets a password first, because the product never does: a
+   * real participant signs in by OTP. Everything that makes the session
+   * meaningful is still the product's -- Keycloak authenticates, the API
+   * exchanges the code, and the cookie is the one it issued.
+   */
+  signInToSignals?: (
+    email: string,
+  ) => Promise<import('../env/browser_session.js').BrowserSession>;
+  /**
    * Runs a command inside a container on the stack's own network.
    *
    * Needed for exactly one thing: a presigned upload. Those URLs are signed

@@ -14,6 +14,8 @@ import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_
 import { editedProfileReachesBrowseFeed } from './search/edited_profile_reaches_browse_feed.js';
 import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.js';
 import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
+import { aPersonSignsUpAndConnects } from './lifecycle/a_person_signs_up_and_connects.js';
+import { aRejectedRequestRevealsNothing } from './lifecycle/a_rejected_request_reveals_nothing.js';
 import { aRequestHidesContactDetailsUntilAccepted } from './connections/a_request_hides_contact_details_until_accepted.js';
 import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepted_request_reveals_contact_details.js';
 import { anOrganisationJoinsTheNetwork } from './aggregator/an_organisation_joins_the_network.js';
@@ -46,6 +48,7 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   participantIsNotDuplicated,
   aPersonSignsThemselvesUp,
   aPersonCreatesTheirOwnProfile,
+  aPersonSignsUpAndConnects,
   // consent-and-data-disclosure
   profileWithoutConsentStaysHidden,
   onePersonOneDomain,
@@ -57,6 +60,7 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   // consent-and-data-disclosure (continued)
   aRequestHidesContactDetailsUntilAccepted,
   anAcceptedRequestRevealsContactDetails,
+  aRejectedRequestRevealsNothing,
   // notifications
   //
   // No journey for an EDIT: dispatchItemLifecycleNotification is reached

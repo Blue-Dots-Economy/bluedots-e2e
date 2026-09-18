@@ -41,6 +41,21 @@ export type JourneyState = {
   coordinator?: { id: string; email: string; slug?: string };
   /** A token for the approved coordinator, carrying the claims its approval set. */
   coordinatorToken?: string;
+  /**
+   * A person's own signals session. The cookie and the CSRF token together:
+   * the API refuses a write that carries only one.
+   */
+  session?: import('../env/browser_session.js').BrowserSession;
+  /**
+   * A session per person, by the domain they signed up as.
+   *
+   * A connection needs two people acting for themselves, and the aggregator
+   * path cannot supply either: it creates a local user row and no Keycloak
+   * identity, so somebody onboarded in bulk has nothing to sign in with.
+   */
+  sessions?: Record<string, import('../env/browser_session.js').BrowserSession>;
+  /** Who signed up, by domain, so a journey can sign two people in. */
+  signups?: Record<string, { email: string; domain: string }>;
   /** The bulk upload a step created, for the steps that start and await it. */
   bulkUploadId?: string;
   /**
@@ -85,6 +100,9 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   organisation: 'registerOrganisation',
   coordinator: 'registerCoordinator',
   coordinatorToken: 'signInAsCoordinator',
+  session: 'signIn',
+  sessions: 'signIn',
+  signups: 'signUp',
   bulkUploadId: 'uploadParticipants',
   bulkPhone: 'uploadParticipants',
   bulkInvalidPhone: 'uploadParticipants with an invalid row',

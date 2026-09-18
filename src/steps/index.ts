@@ -12,6 +12,8 @@ export { changeLifecycle } from './actors/change_lifecycle.js';
 export { editProfile } from './actors/edit_profile.js';
 export { expectSecondDomainRefused } from './actors/refused_second_domain.js';
 export { signUp } from './actors/sign_up.js';
+export { signIn } from './actors/sign_in.js';
+export { acceptTerms } from './actors/accept_terms.js';
 export { registerAccount } from './actors/register_account.js';
 export { createProfileAsSelf } from './actors/create_profile_as_self.js';
 export { applyTo } from './actors/apply_to.js';

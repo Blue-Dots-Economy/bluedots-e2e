@@ -25,7 +25,6 @@ export const applyTo = (spec: { action: string; from: string; to: string }) =>
     label: `Asked the ${spec.to.replace(/_/g, ' ')} to ${spec.action.replace(/_/g, ' ')}`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
-      const keys = requireContext(ctx.keys, 'participant credentials');
       const probe = requireContext(ctx.probe, 'ingest probe');
       const profiles = requireState(state, 'profiles');
 
@@ -38,7 +37,18 @@ export const applyTo = (spec: { action: string; from: string; to: string }) =>
         );
       }
 
-      const apiKey = await keys.issueFor(from.userId, `actor-${spec.from}`);
+      // Their own session when they signed themselves up, a minted
+      // credential when an aggregator onboarded them. Same participant in
+      // `request.user` either way; only one of them is what a person holds.
+      const session = state.sessions?.[spec.from];
+      const auth: Record<string, string> = session
+        ? { cookie: session.cookie, 'x-csrf-token': session.csrfToken }
+        : {
+            'x-api-key': await requireContext(ctx.keys, 'participant credentials').issueFor(
+              from.userId,
+              `actor-${spec.from}`,
+            ),
+          };
 
       // From the write model, not from /api/v1/item/fetch: that route scopes
       // every query to `created_by = caller` -- it is the owner's "my
@@ -54,7 +64,7 @@ export const applyTo = (spec: { action: string; from: string; to: string }) =>
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/action/perform`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
+        headers: { 'content-type': 'application/json', ...auth },
         body: JSON.stringify({
           action_type: spec.action,
           source_item: {

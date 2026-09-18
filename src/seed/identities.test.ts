@@ -20,6 +20,7 @@ seed complete.
   findUsersByEmail: async () => [],
   realmRolesOf: async () => [],
   groupsOf: async () => [],
+  markReadyToSignIn: async () => {},
   },
   obtainToken: async () => 'tok-123',
   ...over,

@@ -15,6 +15,7 @@ function fakeAdmin(clients: ClientRep[]) {
   findUsersByEmail: async () => [],
   realmRolesOf: async () => [],
   groupsOf: async () => [],
+  markReadyToSignIn: async () => {},
   };
   return { updates, admin };
 }

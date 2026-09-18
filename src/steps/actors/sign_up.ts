@@ -55,5 +55,8 @@ export const signUp = (spec: { as: string }) =>
       }
 
       state.signedUp = { email, domain: spec.as };
+      // Also by domain: a connection needs two people signed up, and one
+      // slot would leave the second overwriting the first.
+      state.signups = { ...state.signups, [spec.as]: { email, domain: spec.as } };
     },
   });

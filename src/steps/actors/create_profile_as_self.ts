@@ -29,12 +29,18 @@ export const createProfileAsSelf = (spec: { as: string }) =>
       const state = ctx.state as JourneyState;
       const target = requireContext(ctx.target, 'target');
       const probe = requireContext(ctx.probe, 'ingest probe');
-      const keys = requireContext(ctx.keys, 'participant credentials');
-      const account = requireState(state, 'accounts')[spec.as];
-      if (!account) {
+
+      // The person's own session when they have one, and a minted
+      // credential otherwise. Both put the same participant in
+      // `request.user`, but a session is what a person actually holds --
+      // and it is the only one available to somebody who signed themselves
+      // up, since they have no account anybody else registered.
+      const session = state.sessions?.[spec.as];
+      const account = session ? undefined : requireState(state, 'accounts')[spec.as];
+      if (!session && !account) {
         throw new Error(
-          `STEP_FAILED: no account registered for "${spec.as}", so there is nobody to ` +
-            `create a profile as. registerAccount records one.`,
+          `STEP_FAILED: nobody is signed in as a "${spec.as}" and no account was registered ` +
+            `for one, so there is nobody to create a profile as.`,
         );
       }
 
@@ -50,11 +56,18 @@ export const createProfileAsSelf = (spec: { as: string }) =>
       };
       state.itemState = itemState;
 
-      const apiKey = await keys.issueFor(account.userId, `self-${spec.as}`);
+      const auth: Record<string, string> = session
+        ? { cookie: session.cookie, 'x-csrf-token': session.csrfToken }
+        : {
+            'x-api-key': await requireContext(ctx.keys, 'participant credentials').issueFor(
+              account!.userId,
+              `self-${spec.as}`,
+            ),
+          };
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/item/create`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
+        headers: { 'content-type': 'application/json', ...auth },
         body: JSON.stringify({
           item_network: target.network,
           item_domain: spec.as,
@@ -102,7 +115,14 @@ export const createProfileAsSelf = (spec: { as: string }) =>
       state.itemKey = key;
       state.profiles = {
         ...state.profiles,
-        [spec.as]: { key, itemState, email: account.email, userId: account.userId },
+        [spec.as]: {
+          key,
+          itemState,
+          email: account?.email ?? requireState(state, 'signups')[spec.as]!.email,
+          // Only an account path knows the id up front. A signed-in person's
+          // is their Keycloak subject, and no step needs it.
+          userId: account?.userId ?? '',
+        },
       };
     },
   });

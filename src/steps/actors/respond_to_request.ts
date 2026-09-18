@@ -24,7 +24,6 @@ export const respondToRequest = (spec: { as: string; status: string }) =>
     label: `The ${spec.as.replace(/_/g, ' ')} ${spec.status.replace(/_/g, ' ')} the request`,
     run: async (ctx: StepContext) => {
       const state = ctx.state as JourneyState;
-      const keys = requireContext(ctx.keys, 'participant credentials');
       const actionId = requireState(state, 'actionId');
       const responder = requireState(state, 'profiles')[spec.as];
       if (!responder) {
@@ -33,11 +32,19 @@ export const respondToRequest = (spec: { as: string; status: string }) =>
         );
       }
 
-      const apiKey = await keys.issueFor(responder.userId, `actor-${spec.as}`);
+      const session = state.sessions?.[spec.as];
+      const auth: Record<string, string> = session
+        ? { cookie: session.cookie, 'x-csrf-token': session.csrfToken }
+        : {
+            'x-api-key': await requireContext(ctx.keys, 'participant credentials').issueFor(
+              responder.userId,
+              `actor-${spec.as}`,
+            ),
+          };
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/action/update-status`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
+        headers: { 'content-type': 'application/json', ...auth },
         body: JSON.stringify([
           {
             action_id: actionId,

@@ -61,6 +61,17 @@ export async function createKcadmAdmin(
         .filter(Boolean);
     },
 
+    async markReadyToSignIn(realm, userId) {
+      await exec('keycloak', [
+        KCADM, 'update', `users/${userId}`, '-r', realm,
+        '-s', 'enabled=true',
+        '-s', 'emailVerified=true',
+        // A pending action is evaluated at AUTHENTICATION time, so one left
+        // over from signup interrupts the login rather than the account.
+        '-s', 'requiredActions=[]',
+      ]);
+    },
+
     async createUser(realm, user) {
       // kcadm prints "Created new user with id 'uuid'" on stderr-ish output;
       // `-i` makes it print just the id, which is what we need.

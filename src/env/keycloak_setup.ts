@@ -32,6 +32,16 @@ export type KeycloakAdmin = {
   realmRolesOf: (realm: string, userId: string) => Promise<string[]>;
   /** Group paths a user belongs to. */
   groupsOf: (realm: string, userId: string) => Promise<string[]>;
+  /**
+   * Clears what Keycloak would otherwise stop a login on.
+   *
+   * Self-signup creates the identity with `emailVerified: false`, because a
+   * real participant proves ownership with an OTP. Keycloak then interrupts
+   * the login with a required action instead of completing it, and the flow
+   * has no page to submit. Cleared here rather than worked around in the
+   * flow: the alternative is a journey that cannot sign anybody in.
+   */
+  markReadyToSignIn: (realm: string, userId: string) => Promise<void>;
 };
 
 /** Only the fields any caller here reads. */

@@ -20,6 +20,7 @@ function fakeAdmin() {
     findUsersByEmail: async () => [],
     realmRolesOf: async () => [],
     groupsOf: async () => [],
+    markReadyToSignIn: async () => {},
   };
   return { calls, admin };
 }
