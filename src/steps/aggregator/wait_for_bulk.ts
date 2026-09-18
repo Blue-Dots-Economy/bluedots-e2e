@@ -4,13 +4,19 @@ import type { JourneyState } from '../../journey/state.js';
 
 type Upload = {
   status?: string;
-  rows_total?: number;
-  rows_succeeded?: number;
-  rows_failed?: number;
+  status_reason?: string | null;
+  total_rows?: number | null;
+  passed?: number;
+  failed?: number;
+  skipped?: number;
 };
 
-/** Terminal states; anything else is still moving. */
-const DONE = new Set(['completed', 'completed_with_errors', 'failed']);
+/**
+ * Terminal states, from the store's own union. The others -- uploaded,
+ * file_validating, row_processing, finalising -- are the four stages in
+ * flight, and naming them here is what lets a stall say WHICH one stalled.
+ */
+const DONE = new Set(['completed', 'failed', 'file_failed']);
 
 /**
  * Wait for the pipeline to finish, and say which stage it died at.
@@ -45,27 +51,32 @@ export const waitUntilBulkFinished = (opts: { timeoutMs?: number } = {}) =>
           throw new Error(
             `STEP_FAILED: the upload is still "${last.status}" after ` +
               `${Math.round((opts.timeoutMs ?? 60_000) / 1000)}s. Nothing moves it but the ` +
-              `worker, so a record stuck at "uploaded" means no job was consumed at all ` +
-              `(check the worker is running and on the same queue), while one stuck at ` +
-              `"running" means a stage started and never finished.`,
+              `worker, so "uploaded" means no job was consumed at all -- check the worker is ` +
+              `running and reading the same queue -- while "file_validating", ` +
+              `"row_processing" or "finalising" each name the stage that started and did not ` +
+              `finish.`,
           );
         }
         await new Promise((r) => setTimeout(r, 500));
       }
 
-      if (last.status === 'failed') {
+      if (last.status !== 'completed') {
+        // file_failed is the whole file rejected before any row ran --
+        // usually a header the parser does not recognise -- and the service
+        // says which in status_reason.
         throw new Error(
-          `STEP_FAILED: the upload failed outright (${last.rows_failed ?? '?'} of ` +
-            `${last.rows_total ?? '?'} rows). This is a file-level rejection, not a bad row.`,
+          `STEP_FAILED: the upload ended "${last.status}": ` +
+            `${last.status_reason ?? 'no reason given'}. That is a file-level rejection, ` +
+            `not a bad row.`,
         );
       }
-      if (!last.rows_succeeded) {
-        // The record reads `completed` with every row rejected, which is a
+      if (!last.passed) {
+        // The record reads completed with every row rejected, which is a
         // finished upload that onboarded nobody.
         throw new Error(
-          `STEP_FAILED: the upload completed with no successful rows ` +
-            `(${last.rows_failed ?? 0} failed of ${last.rows_total ?? 0}). The file was ` +
-            `accepted and every row in it was not.`,
+          `STEP_FAILED: the upload completed and passed no rows (${last.failed ?? 0} failed, ` +
+            `${last.skipped ?? 0} skipped, of ${last.total_rows ?? 0}). The file was accepted ` +
+            `and every row in it was not: ${last.status_reason ?? 'no reason given'}.`,
         );
       }
     },
