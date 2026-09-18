@@ -1,5 +1,5 @@
 import { step, type StepContext } from '../../journey/define_journey.js';
-import { requireState } from '../../journey/state.js';
+import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 
 type Upload = {
@@ -10,6 +10,35 @@ type Upload = {
   failed?: number;
   skipped?: number;
 };
+
+/**
+ * Why each row was rejected, in the service's own words.
+ *
+ * Per-row reasons are not on the upload record -- status_reason covers the
+ * FILE -- they are written to an errors.csv in object storage and handed
+ * out as a presigned url. So reading them carries the same constraint as
+ * writing the upload did: the signature covers the host, and the fetch is
+ * issued from inside the network.
+ *
+ * Only on the failing path, and never allowed to fail the step itself:
+ * this is the explanation for a failure that has already happened.
+ */
+async function rowErrors(ctx: StepContext, uploadId: string, token: string): Promise<string> {
+  try {
+    const res = await ctx.http(
+      `${ctx.endpoints.aggregatorApi}/v1/bulk-uploads/${uploadId}/errors.csv`,
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return `(errors.csv unavailable: ${res.status})`;
+    const { url } = (await res.json()) as { url?: string };
+    if (!url) return '(errors.csv carried no url)';
+    if (!ctx.execInStack) return '(no way to reach object storage from here)';
+    const body = await ctx.execInStack('minio', ['sh', '-c', `curl -sS '${url}'`]);
+    return body.trim() || '(errors.csv was empty)';
+  } catch (err) {
+    return `(could not read errors.csv: ${err instanceof Error ? err.message : String(err)})`;
+  }
+}
 
 /**
  * Terminal states, from the store's own union. The others -- uploaded,
@@ -72,11 +101,13 @@ export const waitUntilBulkFinished = (opts: { timeoutMs?: number } = {}) =>
       }
       if (!last.passed) {
         // The record reads completed with every row rejected, which is a
-        // finished upload that onboarded nobody.
+        // finished upload that onboarded nobody. status_reason covers the
+        // FILE and is null here, so the per-row reasons are read out of
+        // errors.csv -- otherwise this says a row failed and not why.
         throw new Error(
           `STEP_FAILED: the upload completed and passed no rows (${last.failed ?? 0} failed, ` +
             `${last.skipped ?? 0} skipped, of ${last.total_rows ?? 0}). The file was accepted ` +
-            `and every row in it was not: ${last.status_reason ?? 'no reason given'}.`,
+            `and every row in it was not:\n${await rowErrors(ctx, uploadId, token)}`,
         );
       }
     },
