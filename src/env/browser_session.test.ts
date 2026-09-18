@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CookieJar, describePage, loginFormAction, rebaseForTest as rebase } from './browser_session.js';
+import { codeFieldOf, CookieJar, describePage, loginFormAction, rebaseForTest as rebase } from './browser_session.js';
 
 describe('CookieJar', () => {
   test('sends back what a server set, which is the whole binding', () => {
@@ -119,5 +119,23 @@ describe('describePage', () => {
 
   test('says so when there is no form at all', () => {
     expect(describePage('<html><body>Page expired</body></html>')).toContain('no inputs');
+  });
+});
+
+describe('codeFieldOf', () => {
+  test('finds the field the themed page calls its code', () => {
+    // Read off the page, not assumed. A wrong name posts an EMPTY value,
+    // which comes back as "incorrect code" and sends you to the mailbox
+    // instead of to the form.
+    expect(codeFieldOf('<form><input name="otpCode"><input name="_csrf"></form>')).toBe('otpCode');
+  });
+
+  test('accepts the other names this kind of field goes by', () => {
+    expect(codeFieldOf('<input name="code">')).toBe('code');
+    expect(codeFieldOf('<input name="verificationToken">')).toBe('verificationToken');
+  });
+
+  test('says what the page offers instead, when it asks for no code', () => {
+    expect(() => codeFieldOf('<form><input name="identifier"></form>')).toThrow(/identifier/);
   });
 });

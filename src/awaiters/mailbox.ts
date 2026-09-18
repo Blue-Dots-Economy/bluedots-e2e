@@ -131,3 +131,27 @@ export function approvalLinkIn(
 
   return { url: found.toString(), token, id };
 }
+
+/**
+ * The one-time code inside a sign-in email.
+ *
+ * Keycloak's OTP mail is a themed HTML page around a short run of digits,
+ * so the code is found by shape rather than by position. Anchored on word
+ * boundaries and bounded in length: an unanchored digit run matches a year
+ * in the footer, a port in a URL, or the middle of a message id.
+ */
+export function oneTimeCodeIn(body: string): string {
+  const text = body
+    .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ');
+  const codes = [...text.matchAll(/\b(\d{4,8})\b/g)].map((m) => m[1]!);
+  if (codes.length === 0) {
+    throw new Error(
+      `LOGIN_FAILED: the sign-in email carries no code. It said: ` +
+        `${text.replace(/\s+/g, ' ').trim().slice(0, 300)}`,
+    );
+  }
+  // The first is the one the mail leads with; a template that buried it
+  // behind another number would need this revisited rather than guessed at.
+  return codes[0]!;
+}

@@ -127,6 +127,27 @@ export function describePage(html: string): string {
   ].join(' ');
 }
 
+/**
+ * What the code page calls its input.
+ *
+ * Read off the page rather than assumed: the theme owns these names, and a
+ * wrong one posts an empty value that comes back as "incorrect code" --
+ * which sends you looking at the mailbox instead of at the form.
+ */
+export function codeFieldOf(html: string): string {
+  const names = [...html.matchAll(/<input[^>]*\sname="([^"]+)"/gi)]
+    .map((m) => m[1]!)
+    .filter((name) => !name.startsWith('_'));
+  const found = names.find((name) => /code|otp|token/i.test(name));
+  if (!found) {
+    throw new Error(
+      `LOGIN_FAILED: the page after the identifier asks for no code field, so the flow has ` +
+        `gone somewhere unexpected. It offers: ${names.join(', ') || 'nothing'}`,
+    );
+  }
+  return found;
+}
+
 /** Exported for its own tests; the flow uses it through `go`. */
 export const rebaseForTest = rebase;
 
@@ -172,12 +193,22 @@ async function hop(
  * product's, and going around it would mean the journey proves something
  * the service does not allow.
  */
-export async function signInThroughTheFrontDoor(opts: {
+export async function signInThroughTheFrontDoor<Baseline>(opts: {
   signalsApi: string;
   /** Where THIS process reaches Keycloak; the redirects name its compose host. */
   keycloak: string;
-  username: string;
-  password: string;
+  /** Email or mobile. The login page asks for one field and calls it that. */
+  identifier: string;
+  /**
+   * How the one-time code is obtained.
+   *
+   * There is no password anywhere in this realm: the login page takes an
+   * identifier and emails a code. So signing in means reading the mailbox,
+   * exactly as approving a registration does -- `capture` runs before the
+   * code is requested, so that only a message caused by THIS sign-in can
+   * satisfy it.
+   */
+  code: { capture: () => Promise<Baseline>; read: (baseline: Baseline) => Promise<string> };
   fetcher?: typeof fetch;
 }): Promise<BrowserSession> {
   const fetcher = opts.fetcher ?? fetch;
@@ -201,17 +232,35 @@ export async function signInThroughTheFrontDoor(opts: {
   let page = await go(started.location);
   if (page.location) page = await go(page.location);
 
-  // 3. Credentials, to wherever that page posts.
-  const submitted = await go(loginFormAction(page.body), {
+  // 3. The identifier, which asks Keycloak to send a code. The mailbox is
+  //    read from BEFORE that, so an older message cannot satisfy it.
+  const baseline = await opts.code.capture();
+  const asked = await go(loginFormAction(page.body), {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ username: opts.username, password: opts.password }).toString(),
+    body: new URLSearchParams({ identifier: opts.identifier }).toString(),
+  });
+  if (asked.location) {
+    throw new Error(
+      `LOGIN_FAILED: the identifier was accepted and the flow completed without ever asking ` +
+        `for a code, which is not how this realm authenticates anybody.`,
+    );
+  }
+
+  // 4. The code, into whatever the next page calls its field. Named rather
+  //    than assumed: the page is themed, and a wrong field name posts an
+  //    empty code and reads as a wrong code.
+  const codeField = codeFieldOf(asked.body);
+  const submitted = await go(loginFormAction(asked.body), {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ [codeField]: await opts.code.read(baseline) }).toString(),
   });
   if (!submitted.location) {
     throw new Error(
       `LOGIN_FAILED: Keycloak did not redirect back after the credentials were submitted, ` +
         `which is what it does when it refuses them or wants something else first -- an ` +
-        `unverified email, an OTP, a profile it considers incomplete. It said: ` +
+        `refuses the code or wants something else first. It said: ` +
         `${describePage(submitted.body)}`,
     );
   }

@@ -28,7 +28,7 @@ import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
 import { createParticipantKeys } from '../../src/env/participant_keys.js';
-import { createMailProbe } from '../../src/awaiters/mailbox.js';
+import { captureMailBaseline, createMailProbe, oneTimeCodeIn } from '../../src/awaiters/mailbox.js';
 import { createNetworkOrgs } from '../../src/awaiters/network_orgs.js';
 import { obtainServiceToken } from '../../src/seed/service_token.js';
 import { signInThroughTheFrontDoor } from '../../src/env/browser_session.js';
@@ -242,30 +242,31 @@ async function seedBootedStack(
 
   // A person's own session with signals, through the front door.
   //
-  // Self-signup leaves the identity unverified and with no password, and
-  // Keycloak will not complete a login for either. Both are cleared here,
-  // through Keycloak's own admin API -- the same affordance the seeded
-  // participants already use, for the same reason, and nothing the services
-  // themselves are aware of.
-  const signInToSignals = async (email: string) => {
-    const [found] = await admin.findUsersByEmail(stackEnv.KEYCLOAK_REALM!, email);
-    if (!found) {
-      throw new Error(
-        `STEP_FAILED: no realm identity for ${email}. Signing up creates one, so this means ` +
-          `the signup never happened.`,
-      );
-    }
-    const password = `journey-${found.id}`;
-    await admin.setPassword(stackEnv.KEYCLOAK_REALM!, found.id, password);
-    await admin.markReadyToSignIn(stackEnv.KEYCLOAK_REALM!, found.id);
-    return signInThroughTheFrontDoor({
+  // No password anywhere: this realm authenticates by one-time code, so the
+  // sign-in reads the mailbox for it -- the same mailbox, and the same
+  // baseline discipline, that approving a registration uses. Nothing is
+  // faked; Keycloak sends the code and Keycloak checks it.
+  const signInToSignals = async (email: string) =>
+    signInThroughTheFrontDoor({
       signalsApi: env.endpoints.signalsApi,
       keycloak: env.endpoints.keycloak,
-      username: email,
-      password,
+      identifier: email,
+      code: {
+        capture: () => captureMailBaseline(mail),
+        read: async (baseline) => {
+          const message = await mail.find({ to: email, baseline });
+          if (!message) {
+            throw new Error(
+              `LOGIN_FAILED: no sign-in code reached ${email}. Keycloak sends it over SMTP, ` +
+                `so an absent message is the realm's mail configuration rather than a wrong ` +
+                `code.`,
+            );
+          }
+          return oneTimeCodeIn(message.body);
+        },
+      },
       fetcher: opts.http ?? fetch,
     });
-  };
 
   // The realm is where an approval's whole effect lands -- enabled, a role,
   // a group -- and none of it is readable over any service's HTTP API.

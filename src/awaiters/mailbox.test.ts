@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { captureMailBaseline, createMailProbe, approvalLinkIn } from './mailbox.js';
+import { captureMailBaseline, createMailProbe, approvalLinkIn, oneTimeCodeIn } from './mailbox.js';
 
 const LIST = {
   messages: [
@@ -97,5 +97,28 @@ Thanks`;
     expect(() =>
       approvalLinkIn('http://localhost:4000/admin/v1/orgs/read/org-1', 'http://x'),
     ).toThrow(/no token/);
+  });
+});
+
+describe('oneTimeCodeIn', () => {
+  test('finds the code in a themed sign-in email', () => {
+    const body = `<html><style>.x{color:#0074ff}</style><body>
+      <p>Your verification code is</p><h1>483920</h1><p>It expires in 5 minutes.</p></body></html>`;
+
+    expect(oneTimeCodeIn(body)).toBe('483920');
+  });
+
+  test('is not fooled by a number in the surrounding copy', () => {
+    // "expires in 5 minutes" and a footer year are both digit runs. Bounding
+    // the length and anchoring on word boundaries is what keeps a stray one
+    // from being submitted as the code, which comes back as "incorrect" and
+    // sends you looking at the mailbox.
+    const body = '<p>Code: 927451</p><p>Expires in 5 minutes.</p><footer>2026 Blue Dots</footer>';
+
+    expect(oneTimeCodeIn(body)).toBe('927451');
+  });
+
+  test('refuses an email with no code rather than returning something', () => {
+    expect(() => oneTimeCodeIn('<p>Welcome to Blue Dots.</p>')).toThrow(/carries no code/);
   });
 });
