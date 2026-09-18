@@ -1,6 +1,11 @@
 import { stat } from 'node:fs/promises';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
-import { KEYCLOAK_ISSUER, NOTIFICATION_PORT } from './stack_env.js';
+import {
+  AGGREGATOR_API_PORT,
+  AGGREGATOR_DB,
+  KEYCLOAK_ISSUER,
+  NOTIFICATION_PORT,
+} from './stack_env.js';
 import { resetFor } from './base_services.js';
 
 /**
@@ -171,7 +176,114 @@ ${reset('keycloak')}
       timeout: 3s
       retries: 20
 
-  # One block on every path. The fixed name tei-embeddings is global to
+${
+    aggregatorRoot
+      ? `  # Creates aggregator-dpg's database. Its API migrates itself on boot
+  # but will not CREATE the database, and signals-dpg's base compose ships
+  # \`postgresdb\` with no init directory -- aggregator's OWN compose makes
+  # this the default database, so nothing in the stack this harness boots
+  # makes it. A one-shot rather than an init script: the base's postgres
+  # volume survives a re-run, and an initdb.d script only ever runs on an
+  # empty data directory.
+  aggregator-db-init:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: \${POSTGRES_PASSWORD}
+    # Idempotent: a second run finds the row and skips. Quoted -c body so the
+    # inner quoting survives both YAML and sh.
+    command:
+      - sh
+      - -c
+      - >-
+        psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -tc
+        "SELECT 1 FROM pg_database WHERE datname = '${AGGREGATOR_DB}'"
+        | grep -q 1 ||
+        psql -h postgres -U \${POSTGRES_USER:-postgres} -d postgresdb -c
+        "CREATE DATABASE ${AGGREGATOR_DB}"
+
+  # NOT in the base compose -- signals-dpg's local-setup runs signals only.
+  # Defined here in full, like notification-service above.
+  #
+  # No published host port. The approval emails carry links built from
+  # PUBLIC_API_URL, and a journey re-bases those onto the discovered
+  # ephemeral port rather than trusting the host in the mail: the host is a
+  # deployment setting, the path and the token are the behaviour.
+  aggregator-api:
+    image: ghcr.io/blue-dots-economy/aggregator-dpg/api@${digests['aggregator-dpg']}
+    restart: unless-stopped
+    ports:
+      - "0:${AGGREGATOR_API_PORT}"
+    depends_on:
+      aggregator-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      # The realm must carry unmanagedAttributePolicy=ENABLED before the API
+      # creates any user, or the aggregator_id / decision_made attributes are
+      # dropped on the floor -- and every later token is missing the claims
+      # the approval gate reads.
+      keycloak-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "${AGGREGATOR_API_PORT}"
+      HOST: "0.0.0.0"
+      DATABASE_URL: postgres://\${POSTGRES_USER:-postgres}:\${POSTGRES_PASSWORD}@postgres:5432/${AGGREGATOR_DB}
+      RUN_MIGRATIONS_ON_BOOT: "true"
+      # Shares signals' Redis rather than running a second one. BullMQ keys
+      # are \`bull:*\`; the ingest stream and the notification dedupe keys this
+      # suite reads are neither, so the two cannot collide.
+      REDIS_URL: redis://:\${REDIS_PASSWORD}@redis:6379
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: \${KEYCLOAK_REALM}
+      KEYCLOAK_ADMIN_CLIENT_ID: aggregator-api
+      KEYCLOAK_ADMIN_CLIENT_SECRET: \${AGGREGATOR_API_SECRET}
+      KEYCLOAK_ALLOWED_AZP: \${KEYCLOAK_ALLOWED_AZP}
+      ORG_HIERARCHY_ENABLED: \${ORG_HIERARCHY_ENABLED}
+      MAIL_PROVIDER: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_FROM: no-reply@journey.test
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      APPROVAL_TOKEN_SECRET: \${APPROVAL_TOKEN_SECRET}
+      ADMIN_EMAILS: \${ADMIN_EMAILS}
+      PUBLIC_API_URL: http://localhost:${AGGREGATOR_API_PORT}
+      PUBLIC_PORTAL_URL: http://localhost:3100
+      PUBLIC_LINK_BASE_URL: http://localhost:3100
+      SCHEMA_ROOT_DIR: /app/config/\${AGGREGATOR_NETWORK}/schemas
+      AGGREGATOR_CONFIG_PATH: /app/config/\${AGGREGATOR_NETWORK}/aggregator.config.yaml
+      # Keycloak, not the retiring api-key path. The client id doubles as the
+      # signals organisation slug -- that is how resolveServiceAccount finds
+      # the org -- and signals refuses the token outright unless the same id
+      # is in its KEYCLOAK_SERVICE_CLIENT_IDS.
+      SIGNALSTACK_AUTH_MODE: \${SIGNALSTACK_AUTH_MODE}
+      SIGNALSTACK_BASE_URL: \${SIGNALSTACK_BASE_URL}
+      SIGNALSTACK_CLIENT_ID: \${SIGNALSTACK_CLIENT_ID}
+      SIGNALSTACK_CLIENT_SECRET: \${SIGNALSTACK_CLIENT_SECRET}
+      SIGNALSTACK_ITEM_NETWORK: \${AGGREGATOR_NETWORK}
+    volumes:
+      - ${aggregatorRoot}/config:/app/config:ro
+    healthcheck:
+      # CMD with node, never CMD-SHELL: the image is a hardened base with no
+      # /bin/sh, so a shell probe can never pass and the container sits
+      # unhealthy forever -- which blocks everything waiting on it.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${AGGREGATOR_API_PORT}/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+
+`
+      : ''
+  }  # One block on every path. The fixed name tei-embeddings is global to
   # the docker daemon, so the default (real TEI) path -- the one CI takes
   # -- collided with any other stack running an embedder. The stub adds
   # keys here rather than declaring the service a second time: a duplicate

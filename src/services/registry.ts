@@ -32,11 +32,13 @@ export const SERVICE_REGISTRY = {
     perComponent: true,
     defaultTag: 'develop',
     /**
-     * Resolved for provenance but never started: J2 boots signals-dpg and
-     * signals-search only. Its realm export and themes are read from the
-     * checkout, which needs no image.
+     * Booted since the aggregator-onboarding journeys. Before those it was
+     * resolved for provenance only, and the checkout supplied the realm
+     * export and themes without needing an image -- it still does, but the
+     * API now runs as well, so a missing image is a failed run rather than
+     * a missing provenance line.
      */
-    boots: false,
+    boots: true,
     openapi: 'openapi.json',
   },
   'notification-service': {

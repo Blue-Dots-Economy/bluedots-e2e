@@ -8,6 +8,8 @@ export type DiscoveredPorts = {
   keycloak: number;
   postgres: number;
   redis: number;
+  aggregatorApi: number;
+  mailpit: number;
 };
 
 export type Endpoints = {
@@ -16,6 +18,15 @@ export type Endpoints = {
   keycloak: string;
   postgresUrl: string;
   redisUrl: string;
+  aggregatorApi: string;
+  /**
+   * The mail server's HTTP API, not its SMTP port.
+   *
+   * An approval link only exists inside an email, so a journey that approves
+   * anything has to read one -- which makes the mailbox part of the
+   * environment rather than an optional convenience.
+   */
+  mailpit: string;
 };
 
 /**
@@ -48,5 +59,7 @@ export function buildEndpoints(
     keycloak: `http://localhost:${ports.keycloak}`,
     postgresUrl: `postgres://${creds.postgresUser}:${creds.postgresPassword}@localhost:${ports.postgres}/${creds.postgresDb}`,
     redisUrl: `redis://:${creds.redisPassword}@localhost:${ports.redis}`,
+    aggregatorApi: `http://localhost:${ports.aggregatorApi}`,
+    mailpit: `http://localhost:${ports.mailpit}`,
   };
 }

@@ -7,7 +7,7 @@ const ctx = () => ({
   // the recorded fetch.
   http: (async () => new Response('{}')) as unknown as typeof fetch,
   state: {} as Record<string, unknown>,
-  endpoints: { signalsApi: '', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
+  endpoints: { signalsApi: '', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '', aggregatorApi: '', mailpit: '' },
   seeded: {},
 });
 

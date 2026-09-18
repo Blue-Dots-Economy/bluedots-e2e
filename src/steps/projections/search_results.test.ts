@@ -26,7 +26,7 @@ const ctx = (http: typeof fetch): StepContext => ({
     itemKey: { network: 'purple_dot', domain: 'seeker', type: 'profile_1.0', id: ITEM_ID },
     itemState: { ...WRITTEN },
   },
-  endpoints: { signalsApi: '', searchApi: 'http://search', keycloak: '', postgresUrl: '', redisUrl: '' },
+  endpoints: { signalsApi: '', searchApi: 'http://search', keycloak: '', postgresUrl: '', redisUrl: '', aggregatorApi: '', mailpit: '' },
   seeded: {},
   http,
   auth: { apiKey: 'k', actingOrgId: 'org', participantToken: 't' },

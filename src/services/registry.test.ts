@@ -15,9 +15,17 @@ describe('SERVICE_REGISTRY', () => {
   });
 
   test('names the ones a run boots, which is what must resolve to a digest', () => {
-    // aggregator-dpg is the odd one out: its realm and themes are read from
-    // the checkout, so it is resolved for provenance and never started.
-    expect(BOOTED_SERVICES).toEqual(['signals-dpg', 'signals-search', 'notification-service']);
+    // All four now. aggregator-dpg used to be the odd one out -- read from
+    // the checkout for its realm and themes, never started -- until the
+    // aggregator-onboarding journeys needed its API running. A service that
+    // boots must resolve to a digest or the run fails at compose with a
+    // reference to nothing.
+    expect(BOOTED_SERVICES).toEqual([
+      'signals-dpg',
+      'signals-search',
+      'aggregator-dpg',
+      'notification-service',
+    ]);
   });
 
   test('derives the spec sources from it, rather than keeping a second list', () => {

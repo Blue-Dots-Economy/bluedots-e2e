@@ -43,6 +43,30 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     // logging when either is missing.
     'NOTIFICATION_FROM_EMAIL',
     'FRONTEND_BASE_URL',
+    // Empty refuses EVERY client-credentials token with
+    // SERVICE_CLIENT_NOT_ALLOWED, which reads as a broken realm rather than
+    // an unset allow-list -- and it is what the aggregator's push arrives on.
+    'KEYCLOAK_SERVICE_CLIENT_IDS',
+  ],
+  'aggregator-api': [
+    // Unset disables the azp allow-list entirely. On a SHARED realm that
+    // admits any valid bluedots token as a service principal, signals' own
+    // clients included.
+    'KEYCLOAK_ALLOWED_AZP',
+    // Off, and the org routes are never REGISTERED -- so tier one answers
+    // 404, which reads as a missing route rather than a disabled feature.
+    'ORG_HIERARCHY_ENABLED',
+    // Without it no review email is sent, and an approval that is never
+    // requested cannot be granted.
+    'ADMIN_EMAILS',
+    'APPROVAL_TOKEN_SECRET',
+    // getSignalStackWriter() returns null and logs at WARN when any of these
+    // is missing: the aggregator then approves coordinators and registers
+    // nobody with the network, which is a green run over an empty result.
+    'SIGNALSTACK_BASE_URL',
+    'SIGNALSTACK_AUTH_MODE',
+    'SIGNALSTACK_CLIENT_ID',
+    'SIGNALSTACK_CLIENT_SECRET',
   ],
 };
 

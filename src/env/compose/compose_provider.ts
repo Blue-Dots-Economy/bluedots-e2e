@@ -7,6 +7,7 @@ import {
   renderEnvFile,
   NOTIFICATION_KEY_ID,
   NOTIFICATION_SECRET,
+  AGGREGATOR_API_PORT,
 } from './stack_env.js';
 import { renderOverlay } from './overlay.js';
 import { assertCoversBaseServices } from './base_services.js';
@@ -56,6 +57,10 @@ const PORTS: Record<keyof DiscoveredPorts, [service: string, port: number]> = {
   signalsApi: ['signals-api', 2742],
   searchApi: ['signals-search-api', 3100],
   keycloak: ['keycloak', 8080],
+  aggregatorApi: ['aggregator-api', AGGREGATOR_API_PORT],
+  // Published by the base compose, reset to an ephemeral host port by the
+  // overlay like everything else.
+  mailpit: ['mailpit', 8025],
   postgres: ['postgres', 5432],
   redis: ['redis', 6379],
 };
@@ -126,6 +131,14 @@ export class ComposeProvider implements EnvironmentProvider {
             },
             {
               path: join(this.deps.aggregatorRoot, 'infra', 'keycloak', 'themes'),
+              kind: 'directory',
+            },
+            // The aggregator API reads its per-network schemas and
+            // aggregator.config.yaml from here. Missing, it boots and then
+            // fails every registration on schema validation -- which reads
+            // as a bad payload rather than an absent mount.
+            {
+              path: join(this.deps.aggregatorRoot, 'config'),
               kind: 'directory',
             },
           ] as const)

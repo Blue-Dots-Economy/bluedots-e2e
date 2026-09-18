@@ -43,7 +43,7 @@ const ctx = (
 ): StepContext => ({
   clients: {},
   state: Object.assign(state, { seed: state.seed ?? 'abc123' }),
-  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
+  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '', aggregatorApi: '', mailpit: '' },
   seeded: {},
   http,
   probe: probe(lifecycle),

@@ -17,11 +17,23 @@ const apiEnv = {
   NOTIFICATION_SERVICE_SECRET: 's',
   NOTIFICATION_FROM_EMAIL: 'no-reply@journey.local',
   FRONTEND_BASE_URL: 'http://localhost:3000',
+  KEYCLOAK_SERVICE_CLIENT_IDS: 'aggregator-dpg',
+};
+
+const aggregatorEnv = {
+  KEYCLOAK_ALLOWED_AZP: 'aggregator-bff',
+  ORG_HIERARCHY_ENABLED: 'true',
+  ADMIN_EMAILS: 'admin@journey.test',
+  APPROVAL_TOKEN_SECRET: 'x'.repeat(40),
+  SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
+  SIGNALSTACK_AUTH_MODE: 'bearer',
+  SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+  SIGNALSTACK_CLIENT_SECRET: 's',
 };
 
 describe('assertContainerEnv', () => {
   test('passes when every declared variable reaches the container', () => {
-    expect(() => assertContainerEnv(rendered({ 'signals-api': apiEnv }))).not.toThrow();
+    expect(() => assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': aggregatorEnv }))).not.toThrow();
   });
 
   test('names the service and the variable a container will not receive', () => {
@@ -31,7 +43,7 @@ describe('assertContainerEnv', () => {
     // was reading.
     const { SIGNALS_SEARCH_URL: _, ...missing } = apiEnv;
 
-    expect(() => assertContainerEnv(rendered({ 'signals-api': missing }))).toThrow(
+    expect(() => assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv }))).toThrow(
       /CONTAINER_ENV_MISSING.*signals-api.*SIGNALS_SEARCH_URL/s,
     );
   });
@@ -41,13 +53,13 @@ describe('assertContainerEnv', () => {
     // string: present in the rendered config, and read by the service as
     // absent. Exactly the same silent fallback, one layer further in.
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, SIGNALS_SEARCH_API_KEY: '' } })),
+      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, SIGNALS_SEARCH_API_KEY: '' }, 'aggregator-api': aggregatorEnv })),
     ).toThrow(/SIGNALS_SEARCH_API_KEY/);
   });
 
   test('treats a variable rendered as null the same way', () => {
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, NOTIFICATION_SERVICE_SECRET: null } })),
+      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, NOTIFICATION_SERVICE_SECRET: null }, 'aggregator-api': aggregatorEnv })),
     ).toThrow(/NOTIFICATION_SERVICE_SECRET/);
   });
 
@@ -55,7 +67,7 @@ describe('assertContainerEnv', () => {
     const { SIGNALS_SEARCH_URL: _a, NOTIFICATION_FROM_EMAIL: _b, ...missing } = apiEnv;
     let message = '';
     try {
-      assertContainerEnv(rendered({ 'signals-api': missing }));
+      assertContainerEnv(rendered({ 'signals-api': missing, 'aggregator-api': aggregatorEnv }));
     } catch (err) {
       message = (err as Error).message;
     }
@@ -68,5 +80,17 @@ describe('assertContainerEnv', () => {
     // Otherwise a renamed service silently empties the guard: nothing to
     // check, nothing reported, and the table goes on claiming coverage.
     expect(() => assertContainerEnv(rendered({}))).toThrow(/signals-api/);
+  });
+
+  test('catches the aggregator approving coordinators and registering nobody', () => {
+    // getSignalStackWriter() returns null and logs at WARN when the bearer
+    // config is incomplete. The approvals then succeed and reach the network
+    // with nothing -- a green run over an empty result, which is the one
+    // outcome this suite exists to make impossible.
+    const { SIGNALSTACK_CLIENT_SECRET: _, ...broken } = aggregatorEnv;
+
+    expect(() =>
+      assertContainerEnv(rendered({ 'signals-api': apiEnv, 'aggregator-api': broken })),
+    ).toThrow(/aggregator-api.*SIGNALSTACK_CLIENT_SECRET/s);
   });
 });

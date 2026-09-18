@@ -46,7 +46,7 @@ const state = () => ({
 const ctx = (http: typeof fetch): StepContext => ({
   clients: {},
   state: state(),
-  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
+  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '', aggregatorApi: '', mailpit: '' },
   seeded: {},
   http,
   keys: { issueFor: async (userId) => `key-for-${userId}` },

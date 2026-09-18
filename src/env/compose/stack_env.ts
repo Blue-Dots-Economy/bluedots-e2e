@@ -58,6 +58,21 @@ export const NOTIFICATION_SECRET = 'journey-notification-secret';
 /** Internal to the compose network; nothing publishes it. */
 export const NOTIFICATION_PORT = 3001;
 
+/**
+ * aggregator-dpg's own database, on the shared postgres.
+ *
+ * Its API migrates itself on boot (RUN_MIGRATIONS_ON_BOOT), but it will not
+ * CREATE the database -- so a one-shot makes it first. signals-dpg's base
+ * compose ships `postgresdb` and no init directory, where aggregator's own
+ * compose makes this the DEFAULT database; the two stacks disagree, and this
+ * harness boots signals'.
+ */
+export const AGGREGATOR_DB = 'aggregator';
+/** Internal to the compose network; the host port is ephemeral. */
+export const AGGREGATOR_API_PORT = 4000;
+/** Where the aggregator sends a registration for review. */
+export const NETWORK_ADMIN_EMAIL = 'network-admin@journey.test';
+
 export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
   return {
     ...TEST_SECRETS,
@@ -102,6 +117,36 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // two settings drifting apart.
     SIGNALS_API_SECRET: 'journey-signals-api-secret',
     KEYCLOAK_API_CLIENT_SECRET: 'journey-signals-api-secret',
+
+    // Which clients may use client-credentials service auth against signals.
+    // Empty by default, and an empty allow-list refuses EVERY service token
+    // with SERVICE_CLIENT_NOT_ALLOWED -- so the aggregator's Keycloak push
+    // fails in a way that reads like a realm problem. `aggregator-dpg` is
+    // both the client id here and the signals organisation slug; the two
+    // being the same string is how resolveServiceAccount finds the org.
+    KEYCLOAK_SERVICE_CLIENT_IDS: 'aggregator-dpg,voice-dpg',
+
+    // ── aggregator-dpg ──────────────────────────────────────────────────
+    AGGREGATOR_DB,
+    AGGREGATOR_NETWORK: target.dot,
+    // Its token check is an allow-list of `azp`. Unset disables the check --
+    // and on a SHARED realm that admits any valid bluedots token as a
+    // service principal, signals' own clients included.
+    KEYCLOAK_ALLOWED_AZP: 'aggregator-portal,aggregator-api,aggregator-bff',
+    // Registration and approval are both one-tier-per-flag: with this off
+    // the org routes are never REGISTERED, so they answer 404 -- which reads
+    // as a missing route rather than a disabled feature.
+    ORG_HIERARCHY_ENABLED: 'true',
+    // Rejected below 32 characters, with the container refusing to boot.
+    APPROVAL_TOKEN_SECRET: 'journey-approval-token-secret-0123456789',
+    ADMIN_EMAILS: NETWORK_ADMIN_EMAIL,
+    // Keycloak, not the legacy key: the aggregator mints a client-credentials
+    // token as `aggregator-dpg` and signals resolves the org from its client
+    // id. Leaving this `apikey` (the default) would take the better-auth path
+    // the fleet is retiring.
+    SIGNALSTACK_AUTH_MODE: 'bearer',
+    SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+    SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
 
     // Without all three, getNotificationClient() returns undefined and the
     // API silently sends nothing -- which is what made the notification

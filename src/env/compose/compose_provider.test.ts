@@ -16,8 +16,21 @@ const TARGET: ResolvedTarget = {
  */
 const RENDERED_CONFIG = JSON.stringify({
   services: {
+    'aggregator-api': {
+      environment: {
+        KEYCLOAK_ALLOWED_AZP: 'aggregator-bff',
+        ORG_HIERARCHY_ENABLED: 'true',
+        ADMIN_EMAILS: 'admin@journey.test',
+        APPROVAL_TOKEN_SECRET: 'x'.repeat(40),
+        SIGNALSTACK_BASE_URL: 'http://signals-api:2742',
+        SIGNALSTACK_AUTH_MODE: 'bearer',
+        SIGNALSTACK_CLIENT_ID: 'aggregator-dpg',
+        SIGNALSTACK_CLIENT_SECRET: 's',
+      },
+    },
     'signals-api': {
       environment: {
+        KEYCLOAK_SERVICE_CLIENT_IDS: 'aggregator-dpg',
         KEYCLOAK_REALM: 'bluedots',
         SIGNALS_SEARCH_URL: 'http://signals-search-api:3100',
         SIGNALS_SEARCH_API_KEY: 'sk_x',
