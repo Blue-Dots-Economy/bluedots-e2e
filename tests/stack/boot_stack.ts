@@ -28,6 +28,9 @@ import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
 import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
 import { createParticipantKeys } from '../../src/env/participant_keys.js';
+import { createMailProbe } from '../../src/awaiters/mailbox.js';
+import { createNetworkOrgs } from '../../src/awaiters/network_orgs.js';
+import { obtainServiceToken } from '../../src/seed/service_token.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
 
@@ -38,6 +41,8 @@ export type BootedStack = {
   probe: ReturnType<typeof createIngestProbe>;
   notifications: ReturnType<typeof createNotificationProbe>;
   keys: ReturnType<typeof createParticipantKeys>;
+  mail: ReturnType<typeof createMailProbe>;
+  networkOrgs: ReturnType<typeof createNetworkOrgs>;
   target: TargetSchemas;
   targetId: string;
   digests: Record<string, string>;
@@ -195,6 +200,45 @@ async function seedBootedStack(
   // for the person `request.user.id` names, and no service credential stands
   // in for them.
   const keys = createParticipantKeys({ postgresUrl: env.endpoints.postgresUrl });
+  // Where the aggregator's review links arrive. Nothing else exposes them.
+  const mail = createMailProbe({ baseUrl: env.endpoints.mailpit, fetcher: opts.http ?? fetch });
+  const networkOrgs = createNetworkOrgs({ postgresUrl: env.endpoints.postgresUrl });
+
+  // The realm is where an approval's whole effect lands -- enabled, a role,
+  // a group -- and none of it is readable over any service's HTTP API.
+  const realmUser = async (email: string) => {
+    const [found] = await admin.findUsersByEmail(stackEnv.KEYCLOAK_REALM!, email);
+    if (!found) return null;
+    return {
+      id: found.id,
+      enabled: found.enabled ?? false,
+      roles: await admin.realmRolesOf(stackEnv.KEYCLOAK_REALM!, found.id),
+      groups: await admin.groupsOf(stackEnv.KEYCLOAK_REALM!, found.id),
+    };
+  };
+
+  // Secrets by client id, from the same values the realm was rendered with,
+  // so a client can never be asked for with a secret the realm does not have.
+  const clientSecrets: Record<string, string | undefined> = {
+    'aggregator-bff': stackEnv.AGGREGATOR_BFF_SECRET,
+    'aggregator-api': stackEnv.AGGREGATOR_API_SECRET,
+    'aggregator-dpg': stackEnv.SIGNALSTACK_CLIENT_SECRET,
+  };
+  const serviceToken = async (clientId: string) => {
+    const clientSecret = clientSecrets[clientId];
+    if (!clientSecret) {
+      throw new Error(
+        `STEP_FAILED: no secret is known for the "${clientId}" client, so no service token ` +
+          `can be minted for it. The realm is rendered from these same values.`,
+      );
+    }
+    // Minted per call, never cached: these expire in minutes and a run
+    // outlives one, so a token taken at boot 401s halfway through the suite.
+    return obtainServiceToken(
+      { baseUrl: env.endpoints.keycloak, realm: stackEnv.KEYCLOAK_REALM!, clientId, clientSecret },
+      opts.http ?? fetch,
+    );
+  };
 
   return {
     provider,
@@ -203,6 +247,8 @@ async function seedBootedStack(
     probe,
     notifications,
     keys,
+    mail,
+    networkOrgs,
     target,
     targetId,
     digests,
@@ -218,6 +264,10 @@ async function seedBootedStack(
       probe,
       notifications,
       keys,
+      mail,
+      networkOrgs,
+      realmUser,
+      serviceToken,
       auth: {
         apiKey: seeded.apiKey,
         actingOrgId: seeded.aggregatorOrgId,
@@ -250,5 +300,6 @@ export async function teardownStack(stack: BootedStack | undefined): Promise<voi
   await stack?.probe?.close();
   await stack?.notifications?.close();
   await stack?.keys?.close();
+  await stack?.networkOrgs?.close();
   await stack?.provider?.down();
 }

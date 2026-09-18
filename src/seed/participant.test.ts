@@ -17,6 +17,9 @@ function fakeAdmin() {
     addRealmRole: async (...args) => {
       calls.push({ op: 'addRealmRole', args });
     },
+    findUsersByEmail: async () => [],
+    realmRolesOf: async () => [],
+    groupsOf: async () => [],
   };
   return { calls, admin };
 }

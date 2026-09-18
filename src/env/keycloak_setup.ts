@@ -26,7 +26,16 @@ export type KeycloakAdmin = {
   ) => Promise<string>;
   setPassword: (realm: string, userId: string, password: string) => Promise<void>;
   addRealmRole: (realm: string, userId: string, role: string) => Promise<void>;
+  /** Users matching an exact email, which is how the aggregator keys them. */
+  findUsersByEmail: (realm: string, email: string) => Promise<UserRep[]>;
+  /** Realm role names granted to a user, effective ones included. */
+  realmRolesOf: (realm: string, userId: string) => Promise<string[]>;
+  /** Group paths a user belongs to. */
+  groupsOf: (realm: string, userId: string) => Promise<string[]>;
 };
+
+/** Only the fields any caller here reads. */
+export type UserRep = { id: string; email?: string; enabled?: boolean };
 
 /**
  * Enable the direct access grant on one client.

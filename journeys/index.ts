@@ -16,6 +16,8 @@ import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.
 import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
 import { aRequestHidesContactDetailsUntilAccepted } from './connections/a_request_hides_contact_details_until_accepted.js';
 import { anAcceptedRequestRevealsContactDetails } from './connections/an_accepted_request_reveals_contact_details.js';
+import { anOrganisationJoinsTheNetwork } from './aggregator/an_organisation_joins_the_network.js';
+import { aCoordinatorJoinsAnOrganisation } from './aggregator/a_coordinator_joins_an_organisation.js';
 
 /**
  * Every journey the suite knows about.
@@ -45,6 +47,10 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   // consent-and-data-disclosure
   profileWithoutConsentStaysHidden,
   onePersonOneDomain,
+  // aggregator-onboarding
+  anOrganisationJoinsTheNetwork,
+  aCoordinatorJoinsAnOrganisation,
+  // consent-and-data-disclosure (continued)
   aRequestHidesContactDetailsUntilAccepted,
   anAcceptedRequestRevealsContactDetails,
   // notifications

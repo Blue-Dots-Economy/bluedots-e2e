@@ -29,6 +29,24 @@ export type JourneyState = {
    * yet; `profiles` is for people who already have one.
    */
   accounts?: Record<string, { userId: string; email: string }>;
+  /**
+   * The organisation a journey registered, and the coordinator under it.
+   *
+   * Two tiers, kept apart: the organisation is approved by the network
+   * admin and never reaches signals, while the coordinator is approved by
+   * that organisation's owner and IS what gets an organisation in the
+   * network. Collapsing them would hide which approval a later step means.
+   */
+  organisation?: { id: string; ownerEmail: string; slug?: string };
+  coordinator?: { id: string; email: string; slug?: string };
+  /**
+   * The mailbox as it stood before the triggering step.
+   *
+   * An approval token exists only inside an email, and the run has sent
+   * plenty by this point -- so only a message absent from this set was
+   * caused by the step.
+   */
+  mailBaseline?: import('../awaiters/mailbox.js').MailBaseline;
   /** The action a step performed, for the step that resolves it. */
   actionId?: string;
   /** Who signed themselves up, for the step that checks they are known. */
@@ -51,6 +69,9 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   baseline: 'createProfile',
   profiles: 'createProfile',
   accounts: 'registerAccount',
+  organisation: 'registerOrganisation',
+  coordinator: 'registerCoordinator',
+  mailBaseline: 'the step that triggers the email',
   actionId: 'applyTo',
   signedUp: 'signUp',
   notificationBaseline: 'the step that triggers the notification',

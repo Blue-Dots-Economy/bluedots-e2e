@@ -1,10 +1,17 @@
 /**
- * The five declared capabilities. Closed on purpose: the evidence sheet
- * groups by capability, so an open set means the business-facing report
- * grows categories nobody agreed to.
+ * The declared capabilities. Closed on purpose: the evidence sheet groups by
+ * capability, so an open set means the business-facing report grows
+ * categories nobody agreed to.
+ *
+ * `aggregator-onboarding` is separate from `participant-onboarding` rather
+ * than folded into it. The subject is a different one -- an organisation and
+ * its coordinators, not a person -- and filing it under the participant
+ * heading would make the report claim participant coverage that these
+ * journeys do not provide.
  */
 export const CAPABILITIES = [
   'participant-onboarding',
+  'aggregator-onboarding',
   'search-and-discovery',
   'notifications',
   'consent-and-data-disclosure',

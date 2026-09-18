@@ -37,6 +37,31 @@ export type StepContext = {
    * service key, so it reports NOT COVERED elsewhere.
    */
   keys?: import('../env/participant_keys.js').ParticipantKeys;
+  /**
+   * The mailbox the stack sends to. Present only where the environment runs
+   * a mail server -- an approval link exists nowhere but inside an email,
+   * so a journey that approves anything is NOT COVERED without one.
+   */
+  mail?: import('../awaiters/mailbox.js').MailProbe;
+  /**
+   * Mints a client-credentials token for a realm client.
+   *
+   * A factory rather than a token: these are short-lived and a run outlives
+   * one, so a value captured at boot expires mid-suite and every later
+   * journey fails on a 401 that looks like a broken realm.
+   */
+  serviceToken?: (clientId: string) => Promise<string>;
+  /**
+   * Reads a person's realm record. The whole effect of approving an
+   * organisation is in the realm -- the owner goes from disabled to
+   * enabled, gains a role and joins a group -- and none of it is visible
+   * over any HTTP API.
+   */
+  realmUser?: (
+    email: string,
+  ) => Promise<{ id: string; enabled: boolean; roles: string[]; groups: string[] } | null>;
+  /** Reads the organisations the NETWORK holds, which is where a coordinator lands. */
+  networkOrgs?: { findBySlug: (slug: string) => Promise<{ id: string; name: string } | null> };
   auth?: { apiKey: string; actingOrgId: string; participantToken: string };
 };
 

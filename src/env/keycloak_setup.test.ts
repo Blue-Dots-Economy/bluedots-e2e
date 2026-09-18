@@ -12,6 +12,9 @@ function fakeAdmin(clients: ClientRep[]) {
     createUser: async () => 'user-uuid',
     setPassword: async () => {},
     addRealmRole: async () => {},
+  findUsersByEmail: async () => [],
+  realmRolesOf: async () => [],
+  groupsOf: async () => [],
   };
   return { updates, admin };
 }

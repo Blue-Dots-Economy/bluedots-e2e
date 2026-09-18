@@ -31,9 +31,14 @@ describe('checkLabel', () => {
 });
 
 describe('checkCapabilitySlug', () => {
-  test('accepts one of the five declared capabilities', () => {
+  test('accepts one of the declared capabilities, and the set stays small', () => {
     expect(checkCapabilitySlug('search-and-discovery').ok).toBe(true);
-    expect(CAPABILITIES).toHaveLength(5);
+    // Six since the aggregator journeys. The count is asserted so growing
+    // the taxonomy stays a deliberate edit with a reviewer on it -- the
+    // evidence sheet groups by this, so every entry is a heading the
+    // business-facing report will claim coverage under.
+    expect(CAPABILITIES).toHaveLength(6);
+    expect(checkCapabilitySlug('aggregator-onboarding').ok).toBe(true);
   });
 
   test('rejects an undeclared capability so the taxonomy stays closed', () => {

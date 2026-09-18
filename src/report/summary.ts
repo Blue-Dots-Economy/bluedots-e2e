@@ -45,6 +45,7 @@ export type Summary = RunInput & { ok: boolean };
 /** Business-language names for the closed capability set. */
 const CAPABILITY_LABELS: Record<Capability, string> = {
   'participant-onboarding': 'Participant onboarding',
+  'aggregator-onboarding': 'Aggregator onboarding',
   'search-and-discovery': 'Search and discovery',
   notifications: 'Notifications',
   'consent-and-data-disclosure': 'Consent and data disclosure',

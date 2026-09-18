@@ -66,6 +66,9 @@ const STUB_ADMIN = async () => ({
   createUser: async () => 'user-uuid',
   setPassword: async () => {},
   addRealmRole: async () => {},
+  findUsersByEmail: async () => [],
+  realmRolesOf: async () => [],
+  groupsOf: async () => [],
 });
 
 const DEPS = (run: (a: string[]) => Promise<string>) => ({

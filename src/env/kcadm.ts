@@ -36,6 +36,31 @@ export async function createKcadmAdmin(
       return JSON.parse(out || '[]') as ClientRep[];
     },
 
+    async findUsersByEmail(realm, email) {
+      // `exact=true`, or Keycloak treats the query as a prefix search and a
+      // second run's address matches the first run's user.
+      const out = await exec('keycloak', [
+        KCADM, 'get', 'users', '-r', realm, '-q', `email=${email}`, '-q', 'exact=true',
+      ]);
+      return JSON.parse(out || '[]') as { id: string; email?: string; enabled?: boolean }[];
+    },
+
+    async realmRolesOf(realm, userId) {
+      const out = await exec('keycloak', [
+        KCADM, 'get', `users/${userId}/role-mappings/realm`, '-r', realm,
+      ]);
+      return (JSON.parse(out || '[]') as { name?: string }[])
+        .map((r) => String(r.name ?? ''))
+        .filter(Boolean);
+    },
+
+    async groupsOf(realm, userId) {
+      const out = await exec('keycloak', [KCADM, 'get', `users/${userId}/groups`, '-r', realm]);
+      return (JSON.parse(out || '[]') as { path?: string; name?: string }[])
+        .map((g) => String(g.path ?? g.name ?? ''))
+        .filter(Boolean);
+    },
+
     async createUser(realm, user) {
       // kcadm prints "Created new user with id 'uuid'" on stderr-ish output;
       // `-i` makes it print just the id, which is what we need.
