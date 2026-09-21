@@ -12,6 +12,7 @@ import { onboardingNotifiesTheParticipant } from './notifications/onboarding_not
 import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
 import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_owner.js';
 import { editedProfileReachesBrowseFeed } from './search/edited_profile_reaches_browse_feed.js';
+import { aListingReachesTheAssistant } from './search/a_listing_reaches_the_assistant.js';
 import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.js';
 import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
 import { aPersonSignsUpAndConnects } from './lifecycle/a_person_signs_up_and_connects.js';
@@ -76,4 +77,5 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   pausingNotifiesTheOwner,
   retiringNotifiesTheOwner,
   editedProfileReachesBrowseFeed,
+  aListingReachesTheAssistant,
 ];

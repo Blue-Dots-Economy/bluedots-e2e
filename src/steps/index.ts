@@ -35,6 +35,7 @@ export { expectNotFoundInSearch } from './projections/not_in_search.js';
 export { expectNotificationQueued } from './projections/notification_queued.js';
 export { expectLifecycleStatus } from './projections/item_status.js';
 export { expectFoundInDiscover } from './projections/discover_feed.js';
+export { expectListedForTheAssistant } from './projections/local_fetch.js';
 export { expectSameParticipant } from './projections/participant_identity.js';
 export { expectAlreadyRegistered } from './projections/known_identity.js';
 export {
