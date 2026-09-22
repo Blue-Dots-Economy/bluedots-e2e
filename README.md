@@ -80,6 +80,46 @@ signals-search at all. Entries list what a service **reads**, not
 everything it is handed: add one when a variable's absence degrades the
 service silently, not for every variable the overlay sets.
 
+## Secret scanning
+
+This repository is public, and the harness authenticates against real
+environments. `.gitignore` covers `.env` and `.env.*`, but that is a
+convention rather than a control: a credential pasted into a fixture, a
+captured response body, or a config file matching neither pattern is
+committed with nothing objecting — and on a public remote, pushing it is
+disclosure. Rewriting history afterwards does not undo that.
+
+Two layers, deliberately unequal:
+
+| | Runs | Scans |
+| --- | --- | --- |
+| `.github/workflows/secret-scanning.yml` | every pull request, and pushes to `main` | the full history |
+| `.pre-commit-config.yaml` | locally, on `git commit` | the staged diff |
+
+The workflow is the control — it runs whether or not you installed
+anything. The hook is the courtesy: it catches the same thing before the
+push, which is the only point at which the problem is still private. Both
+run gitleaks v8.18.4 with `--redact`, so a finding never prints the
+credential it just caught into a world-readable Actions log or a shared
+terminal.
+
+One-time setup:
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+The other three hooks are not gitleaks' job: `detect-private-key` for the
+one credential shape that arrives as a file rather than a string,
+`check-added-large-files` for a keystore or response dump that a public
+history would keep forever, and `check-merge-conflict` because a committed
+conflict marker means the file was not read before staging.
+
+If gitleaks flags something that is genuinely a test fixture, add it to
+`.gitleaksignore` with a comment saying why it is safe. If it flags a live
+credential, **rotate it and raise an issue** — do not allowlist it. History
+is clean as of this writing, which is why no `.gitleaksignore` exists yet.
+
 ## In CI
 
 `.github/workflows/journey.yml`, on `workflow_dispatch`. Give it the

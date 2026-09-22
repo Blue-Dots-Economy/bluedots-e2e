@@ -1,0 +1,42 @@
+# Local counterpart to .github/workflows/secret-scanning.yml. The workflow is
+# the control -- it runs whether or not a contributor installed anything -- and
+# this catches the same thing one step earlier, before a credential is pushed
+# to a public remote and disclosed.
+#
+# One-time setup, documented in the README:
+#     pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      # Same version as the workflow, so a commit that passes here is not
+      # rejected by CI for a rule the local hook did not have. `rev` pins the
+      # hook definition AND the gitleaks source pre-commit builds from, which
+      # the gitleaks-docker variant would not: its entry at this tag is the
+      # unpinned `zricethezav/gitleaks` tag, i.e. whatever :latest happens to
+      # be that day.
+      #
+      # The hook is `gitleaks protect --staged`, which scans what is about to
+      # be committed rather than history -- history is the workflow's job.
+      # --redact is already in the upstream entry, so a finding never prints
+      # the secret into the terminal (or a shared terminal recording).
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # gitleaks' rules are pattern- and entropy-based; a PEM block is neither
+      # reliably. This is the cheap, exact check for the one credential shape
+      # most likely to arrive as a file rather than a string.
+      - id: detect-private-key
+
+      # A committed .p12/.jks keystore or a captured response dump is both a
+      # disclosure and unremovable from a public history. The default 500 KB
+      # ceiling is well above anything this repo legitimately commits -- the
+      # largest tracked file is the lockfile.
+      - id: check-added-large-files
+
+      # Not a secret check. A committed conflict marker means the file was not
+      # read before staging, which is exactly how a credential left in a
+      # resolved .env ends up in a commit.
+      - id: check-merge-conflict
