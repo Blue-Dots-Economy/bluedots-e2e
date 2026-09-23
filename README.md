@@ -115,10 +115,24 @@ one credential shape that arrives as a file rather than a string,
 history would keep forever, and `check-merge-conflict` because a committed
 conflict marker means the file was not read before staging.
 
-If gitleaks flags something that is genuinely a test fixture, add it to
-`.gitleaksignore` with a comment saying why it is safe. If it flags a live
-credential, **rotate it and raise an issue** — do not allowlist it. History
-is clean as of this writing, which is why no `.gitleaksignore` exists yet.
+If gitleaks flags something that is genuinely a test fixture, put its
+fingerprint in `.gitleaksignore`. **Write the reason on its own line above
+the fingerprint, never on the same line** — at v8.18.4 gitleaks stores each
+line of that file verbatim, with no comment stripping, so
+`<fingerprint>  # test fixture` is read as a fingerprint that matches
+nothing: the finding stays unsuppressed and CI stays red with no hint why.
+If it flags a live credential, **rotate it and raise an issue** — do not
+allowlist it. History is clean as of this writing, which is why no
+`.gitleaksignore` exists yet.
+
+The workflow scans **every branch**, not just the one under review.
+`fetch-depth: 0` plus gitleaks' default `git log --all` means a credential
+on any unmerged branch turns every pull request red — including ones that
+touch nothing related, and the blocked author cannot fix it from their own
+branch. On a public repository that is the honest behaviour, since a
+credential is disclosed wherever it sits, but it does mean a red check here
+is not always about your own change. The way out is to rotate and
+allowlist, never to narrow the scan.
 
 ## In CI
 

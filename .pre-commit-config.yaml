@@ -31,9 +31,16 @@ repos:
       - id: detect-private-key
 
       # A committed .p12/.jks keystore or a captured response dump is both a
-      # disclosure and unremovable from a public history. The default 500 KB
-      # ceiling is well above anything this repo legitimately commits -- the
-      # largest tracked file is the lockfile.
+      # disclosure and unremovable from a public history.
+      #
+      # Kept at the 500 KB default, but know the real headroom: the largest
+      # tracked file is NOT the lockfile (48 KB) -- it is the generated client
+      # src/clients/generated/aggregator-dpg.ts at 252 KB, with signals-dpg.ts
+      # behind it at 123 KB. That is roughly 2x of room, not 10x, on files that
+      # grow with the providers' OpenAPI specs every time
+      # `pnpm clients:generate` runs. If a regeneration ever trips this hook,
+      # the file is legitimate and the ceiling is the thing to discuss -- do
+      # not reach for `git commit --no-verify`.
       - id: check-added-large-files
 
       # Not a secret check. A committed conflict marker means the file was not
