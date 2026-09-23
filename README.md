@@ -80,6 +80,60 @@ signals-search at all. Entries list what a service **reads**, not
 everything it is handed: add one when a variable's absence degrades the
 service silently, not for every variable the overlay sets.
 
+## Secret scanning
+
+This repository is public, and the harness authenticates against real
+environments. `.gitignore` covers `.env` and `.env.*`, but that is a
+convention rather than a control: a credential pasted into a fixture, a
+captured response body, or a config file matching neither pattern is
+committed with nothing objecting — and on a public remote, pushing it is
+disclosure. Rewriting history afterwards does not undo that.
+
+Two layers, deliberately unequal:
+
+| | Runs | Scans |
+| --- | --- | --- |
+| `.github/workflows/secret-scanning.yml` | every pull request, and pushes to `main` | the full history |
+| `.pre-commit-config.yaml` | locally, on `git commit` | the staged diff |
+
+The workflow is the control — it runs whether or not you installed
+anything. The hook is the courtesy: it catches the same thing before the
+push, which is the only point at which the problem is still private. Both
+run gitleaks v8.18.4 with `--redact`, so a finding never prints the
+credential it just caught into a world-readable Actions log or a shared
+terminal.
+
+One-time setup:
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+The other three hooks are not gitleaks' job: `detect-private-key` for the
+one credential shape that arrives as a file rather than a string,
+`check-added-large-files` for a keystore or response dump that a public
+history would keep forever, and `check-merge-conflict` because a committed
+conflict marker means the file was not read before staging.
+
+If gitleaks flags something that is genuinely a test fixture, put its
+fingerprint in `.gitleaksignore`. **Write the reason on its own line above
+the fingerprint, never on the same line** — at v8.18.4 gitleaks stores each
+line of that file verbatim, with no comment stripping, so
+`<fingerprint>  # test fixture` is read as a fingerprint that matches
+nothing: the finding stays unsuppressed and CI stays red with no hint why.
+If it flags a live credential, **rotate it and raise an issue** — do not
+allowlist it. History is clean as of this writing, which is why no
+`.gitleaksignore` exists yet.
+
+The workflow scans **every branch**, not just the one under review.
+`fetch-depth: 0` plus gitleaks' default `git log --all` means a credential
+on any unmerged branch turns every pull request red — including ones that
+touch nothing related, and the blocked author cannot fix it from their own
+branch. On a public repository that is the honest behaviour, since a
+credential is disclosed wherever it sits, but it does mean a red check here
+is not always about your own change. The way out is to rotate and
+allowlist, never to narrow the scan.
+
 ## In CI
 
 `.github/workflows/journey.yml`, on `workflow_dispatch`. Give it the
