@@ -7,6 +7,20 @@ version: 2
 # VERSION UPDATES, the thing that actually raises a pull request. Without it the
 # repository is told about a vulnerable dependency and then waits for somebody
 # to notice.
+#
+# WHERE THIS FILE HAS TO LIVE -- which is not where it is being merged.
+# Dependabot reads dependabot.yml from the DEFAULT branch only, `main` here.
+# This lands on `feature`, as all three sibling repositories' configs did, so
+# NOTHING HAPPENS THE DAY IT MERGES: version updates begin once `feature`
+# promotes through to `main`. signals-search is the worked example -- its
+# config reached main on 2026-07-24 and its first version-update pull request
+# (base `feature`, as configured) appeared on 2026-07-28. The two Dependabot
+# pull requests before that were security updates, which need no config at all.
+#
+# So "it merged and no pull requests appeared" is the expected state, not a
+# broken file. Check the Dependency graph page before concluding anything: a
+# malformed dependabot.yml also produces silence, and nothing in CI validates
+# this file.
 updates:
   # npm/pnpm. One entry at the root covers the repository: it is a single
   # package, and pnpm-lock.yaml (lockfileVersion 9.0) holds the whole graph.
@@ -15,12 +29,21 @@ updates:
     # fleet's feature -> develop -> main promotion and the other three repos'
     # configuration.
     #
-    # This does NOT apply to security updates. Dependabot always raises those
-    # against the default branch and offers no setting to change it, so once
-    # this lands expect version PRs on `feature` and security PRs on `main`.
-    # That asymmetry is a GitHub limitation, not a mistake in this file --
-    # worth knowing, because on a repository with no prior Dependabot traffic
-    # a bump landing straight on main reads like something is misconfigured.
+    # Setting this costs more than a branch. Per GitHub's own reference, once
+    # target-branch points at a non-default branch this entry stops configuring
+    # SECURITY updates altogether -- not just their branch. `labels`,
+    # `commit-message`, `groups` and any `ignore:` added later apply to version
+    # updates only. Security pull requests keep arriving against `main`,
+    # unlabelled, ungrouped and with default commit messages, and there is no
+    # setting that changes it.
+    #
+    # Two consequences worth having in writing. First, a bump landing straight
+    # on main looks misconfigured on a repository with no prior Dependabot
+    # traffic, and is not. Second, an `ignore:` entry added below will NOT
+    # suppress the matching security pull request -- if a dependency has to be
+    # held against a known CVE, that is a Dependabot-alert dismissal with a
+    # reason, not a line in this file.
+    #
     # (Confirmed across the siblings: of 156 Dependabot pull requests, the 15
     # based on main are all the built-in `npm_and_yarn` security group.)
     target-branch: "feature"
@@ -53,19 +76,18 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # GitHub Actions. This is the half that keeps the secret-scanning workflow
-  # honest: every workflow in this repository pins its actions by commit SHA,
-  # and a SHA pin never expires and never warns -- it simply keeps running a
-  # progressively older version, including the checkout in the gitleaks job.
-  # This raises a pull request when the tag's SHA moves, which is what turns
-  # those pins back into a deliberate choice.
+  # GitHub Actions. Every workflow in this repository pins its actions by
+  # commit SHA, and a SHA pin never expires and never warns -- it simply keeps
+  # running a progressively older version. This entry raises a pull request
+  # when the tag's SHA moves, which is what turns those pins back into a
+  # deliberate choice rather than a slow drift.
   #
-  # One pin it does NOT watch: the gitleaks image digest in
-  # secret-scanning.yml. That is pinned inside a `run:` block, and the docker
-  # ecosystem reads Dockerfiles and compose manifests rather than parsing
-  # shell, so it must be bumped by hand alongside its `# v8.18.4` comment.
-  # There is no docker ecosystem entry below for the same reason the siblings
-  # have one and this repository does not: there is no Dockerfile here.
+  # What it does NOT watch is any image digest pinned inside a `run:` block:
+  # the docker ecosystem reads Dockerfiles and compose manifests, and does not
+  # parse shell. The secret-scanning workflow's gitleaks digest is one such
+  # pin and is bumped by hand, as its own comment records. There is no docker
+  # ecosystem entry here for the reason the siblings have one and this
+  # repository does not: there is no Dockerfile.
   - package-ecosystem: "github-actions"
     # No open-pull-requests-limit here, matching all three siblings: the
     # default 5 is ample for four workflow files whose minor/patch updates are
@@ -97,4 +119,8 @@ updates:
 # @vitest/coverage-v8 and no test:coverage script -- and copying the hold across
 # would suppress the very pull request that clears the two critical alerts.
 # Add an entry when a specific upgrade is shown to break something, with the
-# reason written down, as the siblings do.
+# reason written down, as the siblings do -- but know what it will and will not
+# do. Because both entries set target-branch, an `ignore:` here applies to
+# version updates only. It will not stop the matching SECURITY pull request
+# arriving on `main`, so it cannot be used to park a dependency that is subject
+# to an open alert; that is an alert dismissal with a stated reason instead.
