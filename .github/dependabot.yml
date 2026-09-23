@@ -1,0 +1,100 @@
+version: 2
+
+# Dependabot has two halves and the UI presents them together, which makes it
+# easy to assume this file is what produces the Security tab. It is not.
+# ALERTS -- "a dependency you have has a known CVE" -- are on by default for a
+# public repository and were already running here. This file is the other half:
+# VERSION UPDATES, the thing that actually raises a pull request. Without it the
+# repository is told about a vulnerable dependency and then waits for somebody
+# to notice.
+updates:
+  # npm/pnpm. One entry at the root covers the repository: it is a single
+  # package, and pnpm-lock.yaml (lockfileVersion 9.0) holds the whole graph.
+  - package-ecosystem: "npm"
+    # Version-update pull requests go to the integration branch, matching the
+    # fleet's feature -> develop -> main promotion and the other three repos'
+    # configuration.
+    #
+    # This does NOT apply to security updates. Dependabot always raises those
+    # against the default branch and offers no setting to change it, so once
+    # this lands expect version PRs on `feature` and security PRs on `main`.
+    # That asymmetry is a GitHub limitation, not a mistake in this file --
+    # worth knowing, because on a repository with no prior Dependabot traffic
+    # a bump landing straight on main reads like something is misconfigured.
+    # (Confirmed across the siblings: of 156 Dependabot pull requests, the 15
+    # based on main are all the built-in `npm_and_yarn` security group.)
+    target-branch: "feature"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "03:00"
+      timezone: "UTC"
+    # Not the default 5. The limit counts open *version-update* pull requests,
+    # and grouped updates plus a few singletons can sit right at 5 and silently
+    # block any further pull request from being raised -- observed in
+    # aggregator-dpg on 2026-08-04, where the group appeared within minutes of
+    # slots being freed. The failure mode is no pull requests and no error.
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # ONE group, where the sibling repos split production/development. Every
+      # dependency here is a devDependency -- package.json has no `dependencies`
+      # block at all, because the harness is `private: true` and ships nothing
+      # at runtime -- so a `production` group would match nothing, forever.
+      #
+      # minor and patch only, deliberately. Anything not listed falls out of the
+      # group and is raised individually, so the vitest major that clears the
+      # two critical alerts arrives as its own pull request and is reviewed on
+      # its own, rather than buried in a "12 dependencies updated" diff.
+      dev-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions. This is the half that keeps the secret-scanning workflow
+  # honest: every workflow in this repository pins its actions by commit SHA,
+  # and a SHA pin never expires and never warns -- it simply keeps running a
+  # progressively older version, including the checkout in the gitleaks job.
+  # This raises a pull request when the tag's SHA moves, which is what turns
+  # those pins back into a deliberate choice.
+  #
+  # One pin it does NOT watch: the gitleaks image digest in
+  # secret-scanning.yml. That is pinned inside a `run:` block, and the docker
+  # ecosystem reads Dockerfiles and compose manifests rather than parsing
+  # shell, so it must be bumped by hand alongside its `# v8.18.4` comment.
+  # There is no docker ecosystem entry below for the same reason the siblings
+  # have one and this repository does not: there is no Dockerfile here.
+  - package-ecosystem: "github-actions"
+    # No open-pull-requests-limit here, matching all three siblings: the
+    # default 5 is ample for four workflow files whose minor/patch updates are
+    # grouped into one pull request. The npm entry raises its limit because
+    # that is where the throttling was actually observed.
+    target-branch: "feature"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      # Staggered 15 minutes after npm, as the siblings do. Two ecosystems
+      # landing on the same minute makes the resulting pull request list
+      # harder to read for no benefit.
+      time: "03:15"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+# No `ignore:` entries, deliberately. signals-search holds the vitest major
+# because @vitest/coverage-v8 peers on the exact vitest version, so moving one
+# alone leaves an unmet peer and a silently broken coverage run. That coupling
+# does not exist here -- this repository has no coverage tooling, no
+# @vitest/coverage-v8 and no test:coverage script -- and copying the hold across
+# would suppress the very pull request that clears the two critical alerts.
+# Add an entry when a specific upgrade is shown to break something, with the
+# reason written down, as the siblings do.
