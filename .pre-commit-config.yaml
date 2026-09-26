@@ -7,7 +7,7 @@
 #     pip install pre-commit && pre-commit install
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.4
+    rev: v8.30.1
     hooks:
       # Same version as the workflow, so a commit that passes here is not
       # rejected by CI for a rule the local hook did not have. `rev` pins the
@@ -16,10 +16,17 @@ repos:
       # unpinned `zricethezav/gitleaks` tag, i.e. whatever :latest happens to
       # be that day.
       #
-      # The hook is `gitleaks protect --staged`, which scans what is about to
-      # be committed rather than history -- history is the workflow's job.
-      # --redact is already in the upstream entry, so a finding never prints
-      # the secret into the terminal (or a shared terminal recording).
+      # The hook is `gitleaks git --pre-commit --staged`, which scans what is
+      # about to be committed rather than history -- history is the workflow's
+      # job. --redact is already in the upstream entry, so a finding never
+      # prints the secret into the terminal (or a shared terminal recording).
+      #
+      # v8.30.1, not v8.18.4, and the version is load-bearing in two ways.
+      # v8.18.4 FAILS OPEN on the git path: a shadowed `err` in cmd/detect.go
+      # meant a failed `git log` printed "no leaks found" and exited 0, and the
+      # hook has no assertion to catch that the way the workflow does. It also
+      # stored every .gitleaksignore line verbatim, so a `# reason` line became
+      # a bogus fingerprint; v8.30.1 trims and skips comment lines properly.
       - id: gitleaks
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
