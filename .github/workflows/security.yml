@@ -1,0 +1,61 @@
+# Thin caller. All scanning logic lives once in bluedots-automation so the repos
+# consuming it cannot drift apart; see that repo's
+# .github/workflows/security-scan.yml.
+#
+# Replaces a bespoke secret-scanning.yml that predated this repository joining
+# the shared workflow. That file was written before the shared one was in scope
+# here, and left this repo the only PUBLIC one in the estate running its own
+# gitleaks -- with no SARIF, no dependency scan and no workflow lint. The three
+# PRIVATE repos (adhoc-scripts, bluedots-infra-deployments, test-dev-cluster)
+# stay standalone on purpose: without Advanced Security their SARIF uploads fail
+# and take the job down with them.
+#
+# What runs here (language: ts, no image-refs, gitleaks on):
+#   * gitleaks    — git-history secret scan, v8.30.1 pinned by digest upstream.
+#                   v8.30.1 rather than the v8.18.4 this repo used to pin is the
+#                   point, not an incidental bump: v8.18.4 FAILS OPEN on the git
+#                   path, printing "no leaks found" and exiting 0 when `git log`
+#                   fails. The shared workflow additionally asserts a non-zero
+#                   `N commits scanned`, which is what the bespoke file did by
+#                   hand.
+#   * trivy-fs    — dependency CVEs + IaC misconfig + filesystem secret
+#                   detection -> SARIF. New here.
+#   * deps-audit  — `pnpm audit` as a second opinion (log only, no SARIF).
+#   * workflow-lint — zizmor, including the gate that fails a PR using an action
+#                   not pinned to a full commit SHA. All four workflows here are
+#                   already SHA-pinned, so this passes as-is.
+#   * image-scan  — SKIPPED: no image-refs passed. The journey suite pulls
+#                   release images at run time rather than building any here.
+#
+# Report-only (`block: false`): findings land in Security > Code scanning and the
+# job still passes. **Green means "the scan ran", NOT "nothing was found."**
+# Verify a non-zero `N commits scanned` in the run log.
+#
+# Pinned @feature: the fail-closed fix (bluedots-automation#253) has landed on
+# that branch but has not yet promoted. Repin to @main once it reaches main.
+name: security
+
+on:
+  pull_request:
+    branches: [feature, develop, main]
+  push:
+    branches: [develop, main]
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    uses: Blue-Dots-Economy/bluedots-automation/.github/workflows/security-scan.yml@d6a39c5b22be14b4b4aeaa78fc1d86c1f67bb555  # feature 2026-09-25 -- repin to @main once promoted
+    with:
+      language: ts
+      node-version: "22"   # matches engines.node (>=22) and ci.yml
+      block: false
