@@ -27,9 +27,11 @@
 #   * image-scan  — SKIPPED: no image-refs passed. The journey suite pulls
 #                   release images at run time rather than building any here.
 #
-# Report-only (`block: false`): findings land in Security > Code scanning and the
-# job still passes. **Green means "the scan ran", NOT "nothing was found."**
-# Verify a non-zero `N commits scanned` in the run log.
+# Report-only for CVEs (`block: false`): trivy findings land in Security > Code
+# scanning and the job still passes. **A committed secret is different** --
+# `block-secrets: true` fails the check, restoring what the bespoke workflow did
+# with a hardcoded --exit-code=1. Green still means "the scan ran", so verify a
+# non-zero `N commits scanned` in the run log rather than trusting the tick.
 #
 # Pinned @feature: the fail-closed fix (bluedots-automation#253) has landed on
 # that branch but has not yet promoted. Repin to @main once it reaches main.
@@ -54,8 +56,20 @@ jobs:
       contents: read
       security-events: write
       packages: read
-    uses: Blue-Dots-Economy/bluedots-automation/.github/workflows/security-scan.yml@d6a39c5b22be14b4b4aeaa78fc1d86c1f67bb555  # feature 2026-09-25 -- repin to @main once promoted
+    uses: Blue-Dots-Economy/bluedots-automation/.github/workflows/security-scan.yml@31bc45ff3356f4bff27fdf03502dec0feddff9bf  # feature 2026-09-29 -- repin to @main once promoted
     with:
       language: ts
       node-version: "22"   # matches engines.node (>=22) and ci.yml
       block: false
+      # Secrets block; dependency CVEs do not. Two questions with different
+      # answers, which is what bluedots-automation#254 split apart -- until then
+      # a single `block` input forced the secret scan to follow the CVE one, and
+      # consolidating this repo onto the shared workflow silently downgraded a
+      # scan that used to hardcode --exit-code=1.
+      #
+      # Safe to set here specifically because this history is clean: 118 commits,
+      # no leaks. The repos carrying untriaged findings (aggregator-dpg has 8,
+      # signals-dpg has 9) must stay false until those are dealt with, or every
+      # pull request there goes red. That per-repo choice is the whole point of
+      # the split.
+      block-secrets: true
