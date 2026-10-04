@@ -136,6 +136,30 @@ ${reset('keycloak')}
       : ''
   }
 
+  # notification-service's own database. NOT the signals postgres: that image
+  # has no pg_partman, and NS's schema must not share a database with signals.
+  # Built inline from stock Postgres 17 + pg_partman, initialised like the
+  # common-services bootstrap provisions RDS. The inline Dockerfile needs
+  # Docker Compose 2.17 or newer.
+  notification-postgres:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM postgres:17-bookworm
+        RUN apt-get update && apt-get install -y --no-install-recommends postgresql-17-partman && rm -rf /var/lib/apt/lists/*
+    environment:
+      POSTGRES_USER: notification
+      POSTGRES_PASSWORD: notification
+      POSTGRES_DB: notification
+    command: ["postgres", "-c", "fsync=off"]
+    healthcheck:
+      # Creates the partman schema and extension idempotently; the notification
+      # role owns this throwaway database and is its superuser, so no grants.
+      test: ["CMD-SHELL", "pg_isready -U notification -d notification && psql -U notification -d notification -c 'CREATE SCHEMA IF NOT EXISTS partman; CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman;'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
   # NOT in the base compose -- signals-dpg's local-setup does not run it,
   # which is why getNotificationClient() returned undefined and the whole
   # notification pipeline was unassertable rather than merely untested.
@@ -151,11 +175,19 @@ ${reset('keycloak')}
     depends_on:
       redis:
         condition: service_healthy
+      notification-postgres:
+        condition: service_healthy
     environment:
       SERVER_PORT: "${NOTIFICATION_PORT}"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: \${REDIS_PASSWORD}
+      DATABASE_HOST: notification-postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: notification
+      DATABASE_USER: notification
+      DATABASE_PASSWORD: notification
+      DATABASE_SSL: disable
       INTERNAL_SECRETS_JSON: /app/config/internal-secrets.json
       # Logs the recipient of every send. The worker has no transport
       # configured, so a job fails after this line -- the log is the only

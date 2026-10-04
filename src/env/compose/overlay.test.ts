@@ -352,3 +352,20 @@ describe('bind source failures are the harness\'s own', () => {
     );
   });
 });
+
+describe('overlay: notification-service persistence', () => {
+  const yaml = renderOverlay({
+    ...OPTS,
+    digests: { ...OPTS.digests, 'notification-service': 'sha256:abc' },
+  });
+
+  test('defines a pg_partman Postgres for notification-service', () => {
+    expect(yaml).toContain('notification-postgres:');
+    expect(yaml).toContain('postgresql-17-partman');
+  });
+
+  test('points notification-service at it and waits for it', () => {
+    expect(yaml).toMatch(/DATABASE_HOST: notification-postgres/);
+    expect(yaml).toMatch(/notification-postgres:\s*\n\s*condition: service_healthy/);
+  });
+});
