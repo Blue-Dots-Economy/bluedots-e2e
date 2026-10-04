@@ -196,9 +196,9 @@ ${reset('keycloak')}
     volumes:
       - ${notificationSecretsDir ?? '/tmp'}:/app/config:ro
     healthcheck:
-      # /openapi.json is the only unauthenticated route; everything else is
-      # behind the HMAC preHandler and would answer 401 forever.
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${NOTIFICATION_PORT}/openapi.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      # /metrics is the only unauthenticated route; everything else is
+      # behind the auth preHandler and would answer 401 forever.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${NOTIFICATION_PORT}/metrics').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 20

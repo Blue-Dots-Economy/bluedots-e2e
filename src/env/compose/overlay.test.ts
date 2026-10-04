@@ -368,4 +368,9 @@ describe('overlay: notification-service persistence', () => {
     expect(yaml).toMatch(/DATABASE_HOST: notification-postgres/);
     expect(yaml).toMatch(/notification-postgres:\s*\n\s*condition: service_healthy/);
   });
+
+  test('health-checks the unauthenticated /metrics route, not the docs', () => {
+    expect(yaml).toMatch(/fetch\('http:\/\/127\.0\.0\.1:\d+\/metrics'\)/);
+    expect(yaml).not.toContain('/openapi.json');
+  });
 });
