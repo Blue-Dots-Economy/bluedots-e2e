@@ -78,12 +78,23 @@ export type LoginDeps = {
   publicUi: string;
   /** The emailed code. Called once, when the code form is showing; never logged. */
   readCode: () => Promise<string>;
+  /** Per-request deadline. Defaults to LOGIN_REQUEST_TIMEOUT_MS; tests shorten it. */
+  requestTimeoutMs?: number;
 };
+
+/**
+ * How long one login request may take. A server that accepts the connection
+ * and never answers would otherwise hold the journey until the whole stack
+ * test times out, and that failure would name no request at all.
+ */
+export const LOGIN_REQUEST_TIMEOUT_MS = 30_000;
 
 const SESSION_COOKIE = 'sid';
 const MAX_HOPS = 25;
 
 const fail = (why: string) => new Error(`LOGIN_FAILED: ${why}`);
+
+const duration = (ms: number) => (ms % 1000 === 0 ? `${ms / 1000}s` : `${ms}ms`);
 
 const titleOf = (html: string) =>
   /<title>([^<]*)<\/title>/i.exec(html)?.[1]?.trim() || 'untitled page';
@@ -102,19 +113,29 @@ export async function logInWithEmailOtp(
   let method: 'GET' | 'POST' = 'GET';
   let body: string | undefined;
   let codeSubmitted = false;
+  const timeoutMs = deps.requestTimeoutMs ?? LOGIN_REQUEST_TIMEOUT_MS;
 
   for (let hop = 0; hop < MAX_HOPS; hop++) {
     const target = rewriteOrigin(url, origins);
     const cookie = jar.header();
-    const res = await deps.http(target, {
-      method,
-      redirect: 'manual',
-      headers: {
-        ...(cookie ? { cookie } : {}),
-        ...(body !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
-      },
-      ...(body !== undefined ? { body } : {}),
-    });
+    let res: Response;
+    try {
+      res = await deps.http(target, {
+        method,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          ...(cookie ? { cookie } : {}),
+          ...(body !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
+        },
+        ...(body !== undefined ? { body } : {}),
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw fail(`${new URL(target).pathname} did not answer within ${duration(timeoutMs)}`);
+      }
+      throw err;
+    }
     jar.absorb(res);
 
     if (res.status >= 300 && res.status < 400) {

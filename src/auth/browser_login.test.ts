@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { CookieJar, logInWithEmailOtp, parseLoginForm, rewriteOrigin } from './browser_login.js';
+import {
+  CookieJar,
+  LOGIN_REQUEST_TIMEOUT_MS,
+  logInWithEmailOtp,
+  parseLoginForm,
+  rewriteOrigin,
+} from './browser_login.js';
 
 const PUBLIC = {
   publicSignalsApi: 'http://localhost:2742',
@@ -194,6 +200,41 @@ describe('logInWithEmailOtp', () => {
 
     await expect(logInWithEmailOtp('person@example.test', deps(http))).rejects.toThrow(
       /^LOGIN_FAILED: .*auth_error/,
+    );
+  });
+
+  test('gives every request a deadline of 30 seconds by default', async () => {
+    const { http } = scripted();
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const watching = (async (input: string | URL | Request, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return http(input, init);
+    }) as typeof fetch;
+
+    await logInWithEmailOtp('person@example.test', deps(watching));
+
+    expect(LOGIN_REQUEST_TIMEOUT_MS).toBe(30_000);
+    expect(signals.length).toBeGreaterThan(0);
+    for (const s of signals) expect(s).toBeInstanceOf(AbortSignal);
+  });
+
+  test('fails a request that never answers within the deadline, naming where it hung', async () => {
+    // A Keycloak that accepts the connection and never answers would
+    // otherwise hold the journey until the whole stack test times out.
+    const hung = (async (_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      })) as typeof fetch;
+
+    const started = Date.now();
+    const err = await logInWithEmailOtp('person@example.test', {
+      ...deps(hung),
+      requestTimeoutMs: 25,
+    }).catch((e: Error) => e);
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect((err as Error).message).toMatch(
+      /^LOGIN_FAILED: \/api\/v1\/auth\/session\/login did not answer within 25ms/,
     );
   });
 });

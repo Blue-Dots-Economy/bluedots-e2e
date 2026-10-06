@@ -12,6 +12,10 @@ import { onboardingNotifiesTheParticipant } from './notifications/onboarding_not
 import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
 import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_owner.js';
 import { aRequestEmailsTheProvider } from './notifications/a_request_emails_the_provider.js';
+import {
+  aConnectRequestEmailsTheProvider,
+  aConnectRequestEmailsTheServiceProvider,
+} from './notifications/a_connect_request_emails_the_provider.js';
 import { aGuardianIsEmailedACode } from './notifications/a_guardian_is_emailed_a_code.js';
 import { aNewPersonIsWelcomed } from './notifications/a_new_person_is_welcomed.js';
 import { aSupportRequestReachesTheTeam } from './notifications/a_support_request_reaches_the_team.js';
@@ -66,6 +70,8 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   pausingNotifiesTheOwner,
   retiringNotifiesTheOwner,
   aRequestEmailsTheProvider,
+  aConnectRequestEmailsTheProvider,
+  aConnectRequestEmailsTheServiceProvider,
   aGuardianIsEmailedACode,
   aNewPersonIsWelcomed,
   aSupportRequestReachesTheTeam,

@@ -7,8 +7,8 @@ import { applyTo, createProfile, expectEmailDelivered } from '../../src/steps/in
  * inbound request for the PROVIDER's domain -- the domain decides which
  * copy and which portal link they get.
  *
- * ka-dhwd only: apply is the interaction this target declares, and the
- * other target declares none that a seeker sends a provider.
+ * ka-dhwd only: alimco declares no `apply` action. Its seeker -> provider
+ * interaction is `connect`, which J25 and J26 cover on both targets.
  */
 export const aRequestEmailsTheProvider = {
   ...defineJourney({
