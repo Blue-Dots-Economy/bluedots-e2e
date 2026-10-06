@@ -63,15 +63,16 @@ describe('resolveTarget', () => {
     expect(t.cataloguePath).toBe(`${SCHEMAS}/blue_dot/ka-dhwd/ns-catalogue.json`);
   });
 
-  test('falls back to the dot catalogue when the target has none of its own', async () => {
+  test('a dot target uses the dot catalogue', async () => {
     const t = await resolveTarget(SCHEMAS, 'purple_dot', null);
 
     expect(t.cataloguePath).toBe(`${SCHEMAS}/purple_dot/ns-catalogue.json`);
   });
 
-  test('has no catalogue when neither the instance nor the dot carries one', async () => {
-    // null, never a guessed path: the overlay then mounts nothing and sets
-    // no NS_SEED_FILE, rather than pointing NS at a file that is not there.
+  test('an instance never falls back to the dot catalogue', async () => {
+    // blue_dot/ns-catalogue.json exists in the fixtures, up-gzb has none of
+    // its own. Seeding never overwrites, so a fallback would pin the dot's
+    // copy on the instance for good; the deployed chart refuses it too.
     const t = await resolveTarget(SCHEMAS, 'blue_dot', 'up-gzb');
 
     expect(t.cataloguePath).toBeNull();

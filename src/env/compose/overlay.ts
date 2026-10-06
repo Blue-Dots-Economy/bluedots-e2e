@@ -193,6 +193,15 @@ ${reset('keycloak')}
       # NS after the mail server it sends to.
       keycloak:
         condition: service_healthy
+    # Every vendor host NS's providers hard-code resolves to the container
+    # itself, so no send can leave the stack even if a journey or a policy
+    # picks SMS or WhatsApp: the request is refused locally and the job fails
+    # instead of reaching a real gateway with a real number. SES is not
+    # listed because it is only used when SMTP_AWS_SES is set, which it is not.
+    extra_hosts:
+      - "control.msg91.com:127.0.0.1"
+      - "api.pinnacle.in:127.0.0.1"
+      - "api.twilio.com:127.0.0.1"
     environment:
       SERVER_PORT: "${NOTIFICATION_PORT}"
       REDIS_HOST: redis

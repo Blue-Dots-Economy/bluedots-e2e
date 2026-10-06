@@ -435,7 +435,17 @@ describe('overlay: notification-service delivers to mailpit', () => {
     expect(ns).toContain('SMS_LOGIN_OTP_TEMPLATE_ID: journey-login-otp');
   });
 
-  test('waits for keycloak, which serves the key set its bearer check needs', () => {
+  test('points every vendor host NS hard-codes back at the container', () => {
+    // msg91 (SMS), pinnacle (SMS) and twilio (WhatsApp) are the hosts NS's
+    // providers call directly. Resolving them locally means a send that
+    // picks one fails inside the stack instead of reaching a real gateway.
+    for (const host of ['control.msg91.com', 'api.pinnacle.in', 'api.twilio.com']) {
+      expect(ns, host).toContain(`- "${host}:127.0.0.1"`);
+    }
+    expect(ns).toContain('extra_hosts:');
+  });
+
+    test('waits for keycloak, which serves the key set its bearer check needs', () => {
     expect(ns).toMatch(/keycloak:\s*\n\s*condition: service_healthy/);
   });
 

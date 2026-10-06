@@ -90,6 +90,18 @@ export class ComposeProvider implements EnvironmentProvider {
   }
 
   async up(): Promise<EnvironmentContext> {
+    // Before anything else, including the env: no catalogue means NS seeds
+    // nothing and every notification journey fails far from the cause. A
+    // deploy of this target would stop at fetch-configs for the same reason.
+    const cataloguePath = this.target.cataloguePath;
+    if (!cataloguePath) {
+      throw new Error(
+        `TARGET_UNUSABLE: ${this.target.id} has no ns-catalogue.json of its own. ` +
+          `notification-service seeds its templates and policies from it, and an ` +
+          `instance never falls back to its dot's catalogue.`,
+      );
+    }
+
     const env = buildStackEnv(this.target);
 
     // Mount the real file rather than writing a copy: the container then
@@ -134,9 +146,7 @@ export class ComposeProvider implements EnvironmentProvider {
       ...(stubDir ? ([{ path: stubDir, kind: 'directory' }] as const) : []),
       // A single file, mounted where NS_SEED_FILE points. Mounted as a
       // directory instead, NS would fail to read its seed file minutes in.
-      ...(this.target.cataloguePath
-        ? ([{ path: this.target.cataloguePath, kind: 'file' }] as const)
-        : []),
+      { path: cataloguePath, kind: 'file' },
     ]);
 
     // And fail before boot on a service the base compose has grown that

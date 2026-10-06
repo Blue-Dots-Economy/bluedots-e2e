@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { ComposeProvider } from './compose_provider.js';
-import type { ResolvedTarget } from '../../targets/target_discovery.js';
+import { fileURLToPath } from 'node:url';
+import { resolveTarget, type ResolvedTarget } from '../../targets/target_discovery.js';
+
+const SCHEMAS = fileURLToPath(new URL('../../../tests/fixtures/schemas', import.meta.url));
 
 const TARGET: ResolvedTarget = {
   id: 'purple_dot', dot: 'purple_dot', instance: null,
@@ -102,17 +105,17 @@ describe('ComposeProvider', () => {
     expect(seen).toContainEqual({ path: '/schemas/purple_dot/ns-catalogue.json', kind: 'file' });
   });
 
-  test('checks no catalogue when the target has none', async () => {
-    const { run } = fakeDocker();
-    const seen: unknown[] = [];
-    await new ComposeProvider({ ...TARGET, cataloguePath: null }, {
-      ...DEPS(run),
-      assertBindSources: async (sources) => {
-        seen.push(...sources);
-      },
-    }).up();
+  test('refuses to boot a target with no catalogue of its own', async () => {
+    // blue_dot/up-gzb has none, though its dot does. A deploy would fail at
+    // fetch-configs; a stack that booted anyway would seed nothing, and every
+    // notification journey would fail far from the cause.
+    const resolved = await resolveTarget(SCHEMAS, 'blue_dot', 'up-gzb');
+    const { calls, run } = fakeDocker();
 
-    expect(JSON.stringify(seen)).not.toContain('ns-catalogue');
+    await expect(new ComposeProvider(resolved, DEPS(run)).up()).rejects.toThrow(
+      /^TARGET_UNUSABLE: blue_dot\/up-gzb has no ns-catalogue\.json/,
+    );
+    expect(calls).toEqual([]);
   });
 
   test('discovers every endpoint from the ephemeral ports', async () => {
