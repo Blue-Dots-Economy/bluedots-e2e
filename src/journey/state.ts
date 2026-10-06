@@ -32,7 +32,16 @@ export type JourneyState = {
   /** The action a step performed, for the step that resolves it. */
   actionId?: string;
   /** Who signed themselves up, for the step that checks they are known. */
-  signedUp?: { email: string; domain: string };
+  signedUp?: {
+    email: string;
+    domain: string;
+    /** Known once they have logged in: the local user row exists only from then. */
+    userId?: string;
+  };
+  /** The guardian address a ward named, for the step that checks it was emailed. */
+  guardianEmail?: string;
+  /** The reference a support submission was answered with. */
+  supportReference?: string;
   /**
    * Mailpit as it stood before the triggering step.
    *
@@ -54,6 +63,8 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   accounts: 'registerAccount',
   actionId: 'applyTo',
   signedUp: 'signUp',
+  guardianEmail: 'nameAGuardian',
+  supportReference: 'submitSupportRequest',
   mailBaseline: 'the step that triggers the email',
   seed: 'the run',
 };

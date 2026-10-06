@@ -11,6 +11,10 @@ import { profileWithoutConsentStaysHidden } from './consent/profile_without_cons
 import { onboardingNotifiesTheParticipant } from './notifications/onboarding_notifies_the_participant.js';
 import { pausingNotifiesTheOwner } from './notifications/pausing_notifies_the_owner.js';
 import { retiringNotifiesTheOwner } from './notifications/retiring_notifies_the_owner.js';
+import { aRequestEmailsTheProvider } from './notifications/a_request_emails_the_provider.js';
+import { aGuardianIsEmailedACode } from './notifications/a_guardian_is_emailed_a_code.js';
+import { aNewPersonIsWelcomed } from './notifications/a_new_person_is_welcomed.js';
+import { aSupportRequestReachesTheTeam } from './notifications/a_support_request_reaches_the_team.js';
 import { editedProfileReachesBrowseFeed } from './search/edited_profile_reaches_browse_feed.js';
 import { aPersonSignsThemselvesUp } from './signup/a_person_signs_themselves_up.js';
 import { aPersonCreatesTheirOwnProfile } from './onboarding/a_person_creates_their_own_profile.js';
@@ -61,5 +65,9 @@ export const ALL_JOURNEYS: readonly RunnableJourney[] = [
   onboardingNotifiesTheParticipant,
   pausingNotifiesTheOwner,
   retiringNotifiesTheOwner,
+  aRequestEmailsTheProvider,
+  aGuardianIsEmailedACode,
+  aNewPersonIsWelcomed,
+  aSupportRequestReachesTheTeam,
   editedProfileReachesBrowseFeed,
 ];

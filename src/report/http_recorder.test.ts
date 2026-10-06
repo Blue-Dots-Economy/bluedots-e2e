@@ -47,6 +47,30 @@ describe('createRecorder', () => {
     expect(recorded).toContain('REDACTED');
   });
 
+  test('redacts one-time codes in bodies and urls, which the login posts', async () => {
+    // The browser login posts the emailed code as a form field, and the
+    // callback carries the authorisation code in its query.
+    const rec = createRecorder((async () => new Response('ok')) as unknown as typeof fetch);
+
+    await rec.fetch('http://kc/auth?session_code=s&execution=e', {
+      method: 'POST',
+      body: 'otp=482913',
+    });
+    await rec.fetch('http://api/cb?code=abc.def&state=s1', {});
+    await rec.fetch('http://api/verify', {
+      method: 'POST',
+      body: JSON.stringify({ network: 'blue_dot', otp: '482913', password: 'pw' }),
+    });
+
+    const all = JSON.stringify(rec.entries);
+    expect(all).not.toContain('482913');
+    expect(all).not.toContain('abc.def');
+    expect(all).not.toContain('"pw"');
+    expect(rec.entries[0]!.requestBody).toBe('otp=REDACTED');
+    expect(rec.entries[0]!.url).toContain('session_code=s');
+    expect(rec.entries[1]!.url).toBe('http://api/cb?code=REDACTED&state=s1');
+  });
+
   test('attributes each call to the step that made it', async () => {
     const rec = createRecorder(async () => new Response('{}', { status: 200 }));
 

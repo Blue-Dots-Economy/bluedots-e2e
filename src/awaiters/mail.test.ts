@@ -195,6 +195,28 @@ describe('awaitEmailDelivered', () => {
     expect((err as Error).message).not.toContain('482913');
   });
 
+  test('a body pattern must match, and a miss never prints the body or the pattern match', async () => {
+    const base = await captureMailBaseline(probeOf(() => []));
+    const withCode = message({ html: 'Your code is 482913.', text: '' });
+    const without = message({ id: 'm-2', html: 'No code here', text: '' });
+
+    await expect(
+      awaitEmailDelivered(
+        probeOf(() => [withCode]),
+        { to: 'seeker@example.test', bodyMatches: /\b\d{6}\b/ },
+        { baseline: base, ...fast() },
+      ),
+    ).resolves.toMatchObject({ id: 'm-1' });
+
+    const err = await awaitEmailDelivered(
+      probeOf(() => [without]),
+      { to: 'seeker@example.test', bodyMatches: /\b\d{6}\b/ },
+      { baseline: base, ...fast() },
+    ).catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/body does not match the expected pattern/);
+    expect((err as Error).message).not.toContain('No code here');
+  });
+
   test('keeps retrying an unreadable mailbox, then says it could not be read', async () => {
     // null is not "nothing yet": reading it that way would wait out the
     // deadline and blame the services for a harness that could not see.

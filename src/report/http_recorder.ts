@@ -31,6 +31,21 @@ function redact(headers: Record<string, string>): Record<string, string> {
   return out;
 }
 
+/**
+ * Fields whose value is a one-time code or a password. The browser login
+ * posts the emailed code as a form field and the BFF callback carries the
+ * authorisation code in its query; a report must hold neither.
+ */
+const SECRET_FIELDS = ['otp', 'code', 'password'];
+
+const FORM_FIELD = new RegExp(`(^|[?&])(${SECRET_FIELDS.join('|')})=[^&#]*`, 'gi');
+const JSON_FIELD = new RegExp(`("(?:${SECRET_FIELDS.join('|')})"\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, 'gi');
+
+/** Exported for the renderer, which redacts again on the way out. */
+export function redactSecrets(text: string): string {
+  return text.replace(FORM_FIELD, '$1$2=REDACTED').replace(JSON_FIELD, '$1"REDACTED"');
+}
+
 function truncate(body: string): string {
   if (body.length <= MAX_BODY) return body;
   return `${body.slice(0, MAX_BODY)}\n… truncated, ${body.length - MAX_BODY} more characters`;
@@ -68,11 +83,11 @@ export function createRecorder(impl: typeof fetch = fetch) {
       const entry: HttpEntry = {
         step,
         method: init?.method ?? (url instanceof Request ? url.method : 'GET'),
-        url: url instanceof Request ? url.url : String(url),
+        url: redactSecrets(url instanceof Request ? url.url : String(url)),
         status: null,
         durationMs: 0,
         requestHeaders: redact(headersOf(init)),
-        ...(init?.body ? { requestBody: truncate(String(init.body)) } : {}),
+        ...(init?.body ? { requestBody: truncate(redactSecrets(String(init.body))) } : {}),
       };
 
       try {

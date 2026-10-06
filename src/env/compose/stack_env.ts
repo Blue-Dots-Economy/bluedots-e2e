@@ -55,6 +55,15 @@ export const KEYCLOAK_ISSUER = 'http://localhost:8080';
 export const NOTIFICATION_KEY_ID = 'signals-dpg';
 export const NOTIFICATION_SECRET = 'journey-notification-secret';
 
+/**
+ * The origins signals-dpg puts in its redirects. Fixed by the base compose
+ * (API_DOMAIN plus API_PORT, and the UI the API's CORS list names), and
+ * published on no host port here: a step that follows those redirects, as
+ * the browser login does, rewrites them to the ports it discovered.
+ */
+export const PUBLIC_UI_URL = 'http://localhost:5173';
+export const PUBLIC_API_URL = 'http://localhost:2742';
+
 /** The realm every service in the stack shares. */
 export const KEYCLOAK_REALM = 'bluedots';
 /** Internal to the compose network; nothing publishes it. */
@@ -87,7 +96,7 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     KEYCLOAK_INTERNAL_BASE_URL: 'http://keycloak:8080',
     KEYCLOAK_REALM,
     KEYCLOAK_UI_CLIENT_ID: 'signals-ui',
-    PUBLIC_BASE_URL: 'http://localhost:5173',
+    PUBLIC_BASE_URL: PUBLIC_UI_URL,
 
     // aggregator-dpg's render-realm.sh substitutes 19 placeholders and fails
     // hard on five of them. The realm is booted fresh per run and is not
@@ -117,7 +126,7 @@ export function buildStackEnv(target: ResolvedTarget): Record<string, string> {
     // pipeline disables itself in silence. The sender identity is
     // notification-service's own config, set in the overlay.
     NOTIFICATION_SERVICE_ENDPOINT: `http://notification-service:${NOTIFICATION_PORT}`,
-    FRONTEND_BASE_URL: 'http://localhost:5173',
+    FRONTEND_BASE_URL: PUBLIC_UI_URL,
     // Where a support request goes. signals-dpg sends to the first address
     // and copies the rest plus SUPPORT_CC_EMAIL, so two addresses here make
     // that split observable. Without SUPPORT_EMAIL the route answers 503.

@@ -3,18 +3,28 @@ import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { awaitEmailDelivered } from '../../awaiters/mail.js';
 
-type Recipient = { profile: string } | { signedUp: true } | { address: string };
+type Recipient =
+  | { profile: string }
+  | { signedUp: true }
+  | { guardian: true }
+  | { address: string };
+
+/** A body fragment known only at run time, read from what an earlier step recorded. */
+type Fragment = string | { fromState: 'supportReference' };
 
 const describeRecipient = (to: Recipient) =>
   'profile' in to
     ? `the ${to.profile.replace(/_/g, ' ')}`
     : 'signedUp' in to
       ? 'the person who signed up'
-      : to.address;
+      : 'guardian' in to
+        ? 'the guardian'
+        : to.address;
 
 function resolveAddress(to: Recipient, state: JourneyState): string {
   if ('address' in to) return to.address;
   if ('signedUp' in to) return requireState(state, 'signedUp').email;
+  if ('guardian' in to) return requireState(state, 'guardianEmail');
 
   const profiles = requireState(state, 'profiles');
   const profile = profiles[to.profile];
@@ -50,9 +60,11 @@ export const expectEmailDelivered = (spec: {
   /** A stable fragment of the catalogue subject for every target the journey runs on. */
   subjectIncludes?: string;
   /** Stable fragments of the rendered body: a rendered variable, the link host. */
-  bodyIncludes?: string[];
+  bodyIncludes?: Fragment[];
+  /** A shape the body must contain, such as a one-time code. Never printed. */
+  bodyMatches?: RegExp;
   cc?: string[];
-  replyTo?: string;
+  replyTo?: string | { signedUp: true };
   /**
    * The event type notification-service recorded for this recipient. The
    * event, never the template key: the event is what signals-dpg says
@@ -73,15 +85,25 @@ export const expectEmailDelivered = (spec: {
       const probe = requireContext(ctx.mail, 'a mail probe');
       const baseline = requireState(state, 'mailBaseline');
       const to = resolveAddress(spec.to, state);
+      const bodyIncludes = spec.bodyIncludes?.map((f) =>
+        typeof f === 'string' ? f : requireState(state, f.fromState),
+      );
+      const replyTo =
+        spec.replyTo === undefined
+          ? undefined
+          : typeof spec.replyTo === 'string'
+            ? spec.replyTo
+            : requireState(state, 'signedUp').email;
 
       await awaitEmailDelivered(
         probe,
         {
           to,
           ...(spec.subjectIncludes ? { subjectIncludes: spec.subjectIncludes } : {}),
-          ...(spec.bodyIncludes ? { bodyIncludes: spec.bodyIncludes } : {}),
+          ...(bodyIncludes ? { bodyIncludes } : {}),
+          ...(spec.bodyMatches ? { bodyMatches: spec.bodyMatches } : {}),
           ...(spec.cc ? { cc: spec.cc } : {}),
-          ...(spec.replyTo ? { replyTo: spec.replyTo } : {}),
+          ...(replyTo ? { replyTo } : {}),
         },
         // 30s: the event crosses signals-dpg, the NS route, the NS worker
         // and SMTP to Mailpit, which is slower than a Redis read.

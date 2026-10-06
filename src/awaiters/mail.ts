@@ -45,6 +45,11 @@ export type MailMatch = {
   subjectIncludes?: string;
   /** Every fragment must appear in the HTML or the text part. */
   bodyIncludes?: string[];
+  /**
+   * A shape the HTML or text must contain, e.g. a one-time code. Matched,
+   * never reported: a miss says only that the pattern was not found.
+   */
+  bodyMatches?: RegExp;
   /** Every address must be among the message's cc. */
   cc?: string[];
   replyTo?: string;
@@ -68,6 +73,9 @@ function mismatch(m: MailMessage, match: MailMatch): string | null {
     (f) => !m.html.includes(f) && !m.text.includes(f),
   );
   if (missing.length) return `body lacks ${missing.map((f) => `"${f}"`).join(', ')}`;
+  if (match.bodyMatches && !match.bodyMatches.test(m.html) && !match.bodyMatches.test(m.text)) {
+    return 'body does not match the expected pattern';
+  }
   const missingCc = (match.cc ?? []).filter((a) => !hasAddress(m.cc, a));
   if (missingCc.length) return `cc lacks ${missingCc.join(', ')}`;
   if (match.replyTo && !hasAddress(m.replyTo, match.replyTo)) {

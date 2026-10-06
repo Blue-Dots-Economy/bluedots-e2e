@@ -93,6 +93,49 @@ describe('expectEmailDelivered', () => {
     }).run(ctx({ mail: mailOf([delivered('support@bluedots.test')]) }));
   });
 
+  test('resolves the guardian a step named, and reads values the journey recorded', async () => {
+    const state = {
+      ...baseState(),
+      guardianEmail: 'guardian-abc@example.test',
+      supportReference: 'SUP-1',
+    };
+    await expectEmailDelivered({
+      to: { guardian: true },
+      about: 'a code to approve the account',
+      bodyMatches: /\b\d{6}\b/,
+      ...FAST,
+    }).run(
+      ctx({
+        state,
+        mail: mailOf([delivered('guardian-abc@example.test', { html: 'Code 123456' })]),
+      }),
+    );
+
+    await expectEmailDelivered({
+      to: { address: 'support@bluedots.test' },
+      about: 'a support request',
+      bodyIncludes: [{ fromState: 'supportReference' }],
+      replyTo: { signedUp: true },
+      ...FAST,
+    }).run(
+      ctx({
+        state,
+        mail: mailOf([
+          delivered('support@bluedots.test', {
+            html: 'Reference SUP-1',
+            replyTo: ['self-abc@example.test'],
+          }),
+        ]),
+      }),
+    );
+  });
+
+  test('labels the guardian in words', () => {
+    expect(
+      expectEmailDelivered({ to: { guardian: true }, about: 'a code to approve the account' }).label,
+    ).toBe('Emailed the guardian about a code to approve the account');
+  });
+
   test('fails when the mail went to someone else', async () => {
     await expect(
       expectEmailDelivered({ to: { profile: 'seeker' }, about: 'x', ...FAST }).run(
