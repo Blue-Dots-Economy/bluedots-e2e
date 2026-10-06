@@ -49,6 +49,34 @@ describe('resolveTarget', () => {
     expect(purple.servedDomains).toBe('purple_dot/seeker,purple_dot/provider');
   });
 
+  test('reads the network id from the resolved config', async () => {
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'ka-dhwd');
+
+    // NS_NETWORK must equal the id the catalogue's rows are seeded under,
+    // which is the config's own id, not the directory name.
+    expect(t.networkId).toBe('blue_dot');
+  });
+
+  test('resolves the instance catalogue for notification-service', async () => {
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'ka-dhwd');
+
+    expect(t.cataloguePath).toBe(`${SCHEMAS}/blue_dot/ka-dhwd/ns-catalogue.json`);
+  });
+
+  test('falls back to the dot catalogue when the target has none of its own', async () => {
+    const t = await resolveTarget(SCHEMAS, 'purple_dot', null);
+
+    expect(t.cataloguePath).toBe(`${SCHEMAS}/purple_dot/ns-catalogue.json`);
+  });
+
+  test('has no catalogue when neither the instance nor the dot carries one', async () => {
+    // null, never a guessed path: the overlay then mounts nothing and sets
+    // no NS_SEED_FILE, rather than pointing NS at a file that is not there.
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'up-gzb');
+
+    expect(t.cataloguePath).toBeNull();
+  });
+
   test('refuses a dot that has instances, naming what is available', async () => {
     await expect(resolveTarget(SCHEMAS, 'blue_dot', null)).rejects.toThrow(
       /blue_dot\/ka-dhwd/,

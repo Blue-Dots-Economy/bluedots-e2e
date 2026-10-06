@@ -7,6 +7,8 @@ const TARGET = {
   networkConfigPath: '/schemas/purple_dot/network.json',
   consentPath: null, brandPath: null,
   servedDomains: 'purple_dot/seeker',
+  networkId: 'purple_dot',
+  cataloguePath: '/schemas/purple_dot/ns-catalogue.json',
 };
 const OPTS = {
   target: TARGET,
@@ -372,5 +374,111 @@ describe('overlay: notification-service persistence', () => {
   test('health-checks the unauthenticated /metrics route, not the docs', () => {
     expect(yaml).toMatch(/fetch\('http:\/\/127\.0\.0\.1:\d+\/metrics'\)/);
     expect(yaml).not.toContain('/openapi.json');
+  });
+});
+
+/** One service's block: from its key to the next blank-line-separated service. */
+function serviceBlock(yaml: string, service: string): string {
+  const start = yaml.indexOf(`\n  ${service}:\n`);
+  expect(start, `${service} must be in the overlay`).toBeGreaterThan(-1);
+  const rest = yaml.slice(start + 1);
+  const end = rest.search(/\n\n  (?:# |[a-z])/);
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+describe('overlay: notification-service delivers to mailpit', () => {
+  const yaml = renderOverlay({
+    ...OPTS,
+    digests: { ...OPTS.digests, 'notification-service': 'sha256:abc' },
+    notificationSecretsDir: '/run/notification',
+  });
+  const ns = serviceBlock(yaml, 'notification-service');
+
+  test('sends real SMTP to the stack mailpit, unencrypted', () => {
+    expect(ns).toContain('SMTP_HOST: mailpit');
+    expect(ns).toContain('SMTP_PORT: "1025"');
+    expect(ns).toContain('SMTP_SECURE: "false"');
+  });
+
+  test('has a sender identity, without which every v1 email fails permanently', () => {
+    expect(ns).toContain('EMAIL_FROM_ADDRESS: notifications@bluedots.test');
+    expect(ns).toContain('EMAIL_FROM_NAME: "Blue Dots"');
+  });
+
+  test('no longer only logs the recipient', () => {
+    expect(ns).not.toContain('MAIL_LOG');
+  });
+
+  test('serves the target network and seeds its catalogue from a read-only mount', () => {
+    expect(ns).toContain('NS_NETWORK: "purple_dot"');
+    expect(ns).toContain('NS_SEED_FILE: /app/seed/ns-catalogue.json');
+    expect(ns).toContain('- /schemas/purple_dot/ns-catalogue.json:/app/seed/ns-catalogue.json:ro');
+  });
+
+  test('accepts the signals-api bearer token keycloak mints', () => {
+    // The issuer is the PINNED public one (KC_HOSTNAME), since signals-api
+    // takes its token over the internal URL and iss still carries the pin.
+    // The key set is fetched over the compose network.
+    expect(ns).toContain('NS_KEYCLOAK_ISSUER: "http://localhost:8080/realms/bluedots"');
+    expect(ns).toContain(
+      'NS_KEYCLOAK_JWKS_URI: "http://keycloak:8080/realms/bluedots/protocol/openid-connect/certs"',
+    );
+    expect(ns).toContain('NS_AUTH_ALLOWED_AZP: signals-api');
+  });
+
+  test('configures an SMS vendor that can never be reached, so guardian policies publish', () => {
+    // The guardian policies name sms/login_otp, and that template is only
+    // seeded when the msg91 login_otp id is set. Journeys give guardians an
+    // email contact only, so nothing is ever sent through this key.
+    expect(ns).toContain('SMS_PROVIDER: msg91');
+    expect(ns).toContain('MSG91_AUTH_KEY: journey-dummy');
+    expect(ns).toContain('SMS_LOGIN_OTP_TEMPLATE_ID: journey-login-otp');
+  });
+
+  test('waits for keycloak, which serves the key set its bearer check needs', () => {
+    expect(ns).toMatch(/keycloak:\s*\n\s*condition: service_healthy/);
+  });
+
+  test('keeps the internal-secrets mount NS requires at boot', () => {
+    expect(ns).toContain('INTERNAL_SECRETS_JSON: /app/config/internal-secrets.json');
+    expect(ns).toContain('- /run/notification:/app/config:ro');
+  });
+
+  test('a target without a catalogue seeds nothing and mounts nothing', () => {
+    const bare = serviceBlock(
+      renderOverlay({ ...OPTS, target: { ...TARGET, cataloguePath: null } }),
+      'notification-service',
+    );
+
+    expect(bare).not.toContain('NS_SEED_FILE');
+    expect(bare).not.toContain('/app/seed');
+  });
+});
+
+describe('overlay: signals-api notifies with its keycloak token', () => {
+  const api = serviceBlock(renderOverlay(OPTS), 'signals-api');
+
+  test('carries no HMAC pair and no sender address', () => {
+    // The new image authenticates with its Keycloak client and leaves the
+    // sender identity to notification-service.
+    for (const key of [
+      'NOTIFICATION_SERVICE_KEY_ID',
+      'NOTIFICATION_SERVICE_SECRET',
+      'NOTIFICATION_FROM_EMAIL',
+    ]) {
+      expect(api, key).not.toContain(`${key}:`);
+    }
+    expect(api).toContain('NOTIFICATION_SERVICE_ENDPOINT:');
+  });
+
+  test('passes the support addresses through to the container', () => {
+    expect(api).toContain('SUPPORT_EMAIL: ${SUPPORT_EMAIL}');
+    expect(api).toContain('SUPPORT_CC_EMAIL: ${SUPPORT_CC_EMAIL}');
+  });
+
+  test('turns off the fixed test OTP the base compose switches on', () => {
+    // The base sets CREATE_TEST_OTP to "true" in the shared signals env, and
+    // with it on a guardian code is never sent at all.
+    expect(api).toContain('CREATE_TEST_OTP: "false"');
   });
 });

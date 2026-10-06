@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import type { ResolvedTarget } from '../../targets/target_discovery.js';
-import { KEYCLOAK_ISSUER, NOTIFICATION_PORT } from './stack_env.js';
+import { KEYCLOAK_ISSUER, KEYCLOAK_REALM, NOTIFICATION_PORT } from './stack_env.js';
 import { resetFor } from './base_services.js';
 
 /**
@@ -65,6 +65,18 @@ export function renderOverlay(opts: {
   const searchEnv = Object.entries(searchEnvEntries)
     .map(([k, v]) => `      ${k}: "${v}"`)
     .join('\n');
+
+  // notification-service seeds the target's catalogue at boot, when it has
+  // one. Mounted as a single read-only file at the path NS_SEED_FILE names,
+  // the same path the deployed chart uses. No catalogue: no mount and no
+  // NS_SEED_FILE, never a setting that points at nothing.
+  const seedEnv = target.cataloguePath
+    ? '\n      NS_SEED_FILE: /app/seed/ns-catalogue.json'
+    : '';
+  const seedMount = target.cataloguePath
+    ? `\n      - ${target.cataloguePath}:/app/seed/ns-catalogue.json:ro`
+    : '';
+  const realmIssuer = `${KEYCLOAK_ISSUER}/realms/${KEYCLOAK_REALM}`;
 
   // Name reset and port made ephemeral, both from BASE_SERVICES. The base
   // compose is built for a developer running ONE stack: it names every
@@ -165,10 +177,9 @@ ${reset('keycloak')}
   # notification pipeline was unassertable rather than merely untested.
   # Defined here in full rather than overridden.
   #
-  # No published port: signals-api reaches it over the compose network, and
-  # the harness asserts on the Redis queue it writes to rather than on HTTP.
-  # Delivery itself needs SES or Gmail credentials, so a hermetic run can
-  # verify the hop and the queued job, never the inbox.
+  # No published port: signals-api reaches it over the compose network.
+  # NS sends real SMTP to the stack's mailpit; journeys read delivered mail
+  # over Mailpit's API.
   notification-service:
     image: ghcr.io/blue-dots-economy/notification-service@${digests['notification-service']}
     restart: unless-stopped
@@ -176,6 +187,11 @@ ${reset('keycloak')}
       redis:
         condition: service_healthy
       notification-postgres:
+        condition: service_healthy
+      # Serves the key set the bearer check verifies signals-api's token
+      # against. The base starts keycloak after mailpit, so this also orders
+      # NS after the mail server it sends to.
+      keycloak:
         condition: service_healthy
     environment:
       SERVER_PORT: "${NOTIFICATION_PORT}"
@@ -188,13 +204,35 @@ ${reset('keycloak')}
       DATABASE_USER: notification
       DATABASE_PASSWORD: notification
       DATABASE_SSL: disable
+      # Required at boot. Holds one unused HMAC key: signals-api sends with
+      # a bearer token.
       INTERNAL_SECRETS_JSON: /app/config/internal-secrets.json
-      # Logs the recipient of every send. The worker has no transport
-      # configured, so a job fails after this line -- the log is the only
-      # place the intended recipient appears.
-      MAIL_LOG: "true"
+      # Plain SMTP to mailpit inside the compose network: no TLS, no auth.
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      # Without a sender every v1 email fails permanently.
+      EMAIL_FROM_ADDRESS: notifications@bluedots.test
+      EMAIL_FROM_NAME: "Blue Dots"
+      # The network the catalogue rows are seeded under and every send is
+      # resolved against: network.json's own id.
+      NS_NETWORK: "${target.networkId}"${seedEnv}
+      # Bearer auth for signals-api. The issuer is the PINNED public one
+      # (KC_HOSTNAME above): signals-api takes its token over the internal
+      # URL and iss still carries the pin. The key set is fetched over the
+      # compose network, since localhost inside this container is NS itself.
+      NS_KEYCLOAK_ISSUER: "${realmIssuer}"
+      NS_KEYCLOAK_JWKS_URI: "http://keycloak:8080/realms/${KEYCLOAK_REALM}/protocol/openid-connect/certs"
+      NS_AUTH_ALLOWED_AZP: signals-api
+      # The guardian policies name sms/login_otp, and that template is seeded
+      # only when the msg91 login_otp id is set, so without these the
+      # policies never publish. The key is a dummy and nothing is sent
+      # through it: journeys give guardians an email contact only.
+      SMS_PROVIDER: msg91
+      MSG91_AUTH_KEY: journey-dummy
+      SMS_LOGIN_OTP_TEMPLATE_ID: journey-login-otp
     volumes:
-      - ${notificationSecretsDir ?? '/tmp'}:/app/config:ro
+      - ${notificationSecretsDir ?? '/tmp'}:/app/config:ro${seedMount}
     healthcheck:
       # /metrics is the only unauthenticated route; everything else is
       # behind the auth preHandler and would answer 401 forever.
@@ -287,17 +325,20 @@ ${reset('signals-api')}
       # already carries a note about.
       SIGNALS_SEARCH_URL: http://signals-search-api:3100
       SIGNALS_SEARCH_API_KEY: \${SIGNALS_SEARCH_API_KEY}
-      # And without all three of these getNotificationClient() returns
-      # undefined, so the API sends nothing and logs nothing -- which is
-      # exactly what the notification journeys saw.
+      # Without the endpoint getNotificationClient() returns undefined, so
+      # the API sends nothing and logs nothing -- which is exactly what the
+      # notification journeys once saw. It authenticates with the signals-api
+      # Keycloak client (KEYCLOAK_API_CLIENT_SECRET, from the base env).
       NOTIFICATION_SERVICE_ENDPOINT: \${NOTIFICATION_SERVICE_ENDPOINT}
-      NOTIFICATION_SERVICE_KEY_ID: \${NOTIFICATION_SERVICE_KEY_ID}
-      NOTIFICATION_SERVICE_SECRET: \${NOTIFICATION_SERVICE_SECRET}
-      # Both required by resolveNotifierConfig, which returns null without
-      # logging when either is missing -- the reason the first run with a
-      # notification client still sent nothing at all.
-      NOTIFICATION_FROM_EMAIL: \${NOTIFICATION_FROM_EMAIL}
+      # Required by resolveNotifierConfig, which returns null without
+      # logging when no URL source is set.
       FRONTEND_BASE_URL: \${FRONTEND_BASE_URL}
+      # Where a support request goes; the route answers 503 without it.
+      SUPPORT_EMAIL: \${SUPPORT_EMAIL}
+      SUPPORT_CC_EMAIL: \${SUPPORT_CC_EMAIL}
+      # The base sets this to "true" for every signals container, and with it
+      # on a guardian code is the fixed 000000 and is never sent at all.
+      CREATE_TEST_OTP: "false"
     volumes: !override
       - ${networkMount}
 

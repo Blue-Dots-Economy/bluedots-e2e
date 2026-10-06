@@ -83,6 +83,14 @@ export type ResolvedTarget = Target & {
    * adding a target free of test code.
    */
   servedDomains: string;
+  /** network.json's own `id`: the network notification-service serves (NS_NETWORK). */
+  networkId: string;
+  /**
+   * The notification-service catalogue this target deploys with: the
+   * instance's own `ns-catalogue.json`, else the dot's, else null. Null means
+   * the stack seeds nothing, never that it points NS at a missing file.
+   */
+  cataloguePath: string | null;
 };
 
 async function firstExisting(...paths: string[]): Promise<string | null> {
@@ -135,5 +143,10 @@ export async function resolveTarget(
     ),
     brandPath: await firstExisting(join(dir, 'brand.json'), join(dotDir, 'brand.json')),
     servedDomains,
+    networkId: config.id,
+    cataloguePath: await firstExisting(
+      join(dir, 'ns-catalogue.json'),
+      join(dotDir, 'ns-catalogue.json'),
+    ),
   };
 }

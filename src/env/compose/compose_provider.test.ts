@@ -7,6 +7,8 @@ const TARGET: ResolvedTarget = {
   networkConfigPath: '/schemas/purple_dot/network.json',
   consentPath: null, brandPath: null,
   servedDomains: 'purple_dot/seeker',
+  networkId: 'purple_dot',
+  cataloguePath: '/schemas/purple_dot/ns-catalogue.json',
 };
 
 /**
@@ -22,9 +24,7 @@ const RENDERED_CONFIG = JSON.stringify({
         SIGNALS_SEARCH_URL: 'http://signals-search-api:3100',
         SIGNALS_SEARCH_API_KEY: 'sk_x',
         NOTIFICATION_SERVICE_ENDPOINT: 'http://notification-service:4000',
-        NOTIFICATION_SERVICE_KEY_ID: 'k',
-        NOTIFICATION_SERVICE_SECRET: 's',
-        NOTIFICATION_FROM_EMAIL: 'no-reply@journey.local',
+        KEYCLOAK_API_CLIENT_SECRET: 'journey-signals-api-secret',
         FRONTEND_BASE_URL: 'http://localhost:3000',
       },
     },
@@ -72,7 +72,47 @@ describe('ComposeProvider', () => {
 
     // Direct Redis and Postgres access is what lets a journey prove an event
     // crossed the stream rather than that the data arrived somehow.
-    expect(ctx.capabilities).toEqual(['http', 'redis', 'postgres']);
+    // Mailpit is in the stack and its API is published, so delivered mail
+    // can be read.
+    expect(ctx.capabilities).toEqual(['http', 'redis', 'postgres', 'mail']);
+  });
+
+  test('discovers mailpit from its published API port', async () => {
+    const { calls, run } = fakeDocker();
+    const ctx = await new ComposeProvider(TARGET, DEPS(run)).up();
+
+    const i = calls.findIndex((c) => c.includes('port') && c.includes('mailpit'));
+    expect(i).toBeGreaterThan(-1);
+    expect(calls[i]!.slice(-3)).toEqual(['port', 'mailpit', '8025']);
+    expect(ctx.endpoints.mailpit).toMatch(/^http:\/\/localhost:55\d\d\d$/);
+  });
+
+  test('checks the catalogue exists before boot', async () => {
+    // Docker would otherwise create it as an empty directory, and NS would
+    // fail to read a seed file that is a directory, minutes in.
+    const { run } = fakeDocker();
+    const seen: unknown[] = [];
+    await new ComposeProvider(TARGET, {
+      ...DEPS(run),
+      assertBindSources: async (sources) => {
+        seen.push(...sources);
+      },
+    }).up();
+
+    expect(seen).toContainEqual({ path: '/schemas/purple_dot/ns-catalogue.json', kind: 'file' });
+  });
+
+  test('checks no catalogue when the target has none', async () => {
+    const { run } = fakeDocker();
+    const seen: unknown[] = [];
+    await new ComposeProvider({ ...TARGET, cataloguePath: null }, {
+      ...DEPS(run),
+      assertBindSources: async (sources) => {
+        seen.push(...sources);
+      },
+    }).up();
+
+    expect(JSON.stringify(seen)).not.toContain('ns-catalogue');
   });
 
   test('discovers every endpoint from the ephemeral ports', async () => {
