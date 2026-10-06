@@ -7,13 +7,14 @@ describe('createNotificationEvents', () => {
     const events = createNotificationEvents({
       exec: async (service, cmd) => {
         calls.push({ service, cmd });
-        return 'item.onboarded_by_aggregator\nitem.paused\n';
+        return 'item.onboarded_by_aggregator|seeker\nsupport.request|\n';
       },
     });
 
-    expect(await events.eventTypesFor('seeker@example.test')).toEqual([
-      'item.onboarded_by_aggregator',
-      'item.paused',
+    // An empty domain column is null: a network-wide event, not a missing read.
+    expect(await events.eventsFor('seeker@example.test')).toEqual([
+      { eventType: 'item.onboarded_by_aggregator', domain: 'seeker' },
+      { eventType: 'support.request', domain: null },
     ]);
     expect(calls[0]!.service).toBe('notification-postgres');
     const sql = calls[0]!.cmd.at(-1)!;
@@ -22,6 +23,7 @@ describe('createNotificationEvents', () => {
     // The event type, never the template key: the catalogue chooses the
     // template, and the contract between the two services is the event.
     expect(sql).toContain('event_type');
+    expect(sql).toContain('domain');
     expect(sql).not.toContain('template_key');
   });
 
@@ -34,7 +36,7 @@ describe('createNotificationEvents', () => {
       },
     });
 
-    await events.eventTypesFor("o'brien@example.test");
+    await events.eventsFor("o'brien@example.test");
 
     expect(sql).toContain("'o''brien@example.test'");
   });
@@ -46,6 +48,6 @@ describe('createNotificationEvents', () => {
       },
     });
 
-    expect(await events.eventTypesFor('x@example.test')).toBeNull();
+    expect(await events.eventsFor('x@example.test')).toBeNull();
   });
 });

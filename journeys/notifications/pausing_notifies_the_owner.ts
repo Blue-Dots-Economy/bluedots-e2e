@@ -30,6 +30,8 @@ export const pausingNotifiesTheOwner = {
         to: { profile: 'seeker' },
         about: 'their profile being paused',
         subjectIncludes: 'paused',
+        recordedAs: 'item.paused',
+        recordedDomain: 'seeker',
         bodyIncludes: ['paused', 'http://localhost:5173/'],
       }),
     ],

@@ -59,6 +59,11 @@ export const expectEmailDelivered = (spec: {
    * happened, and the catalogue is free to choose any template for it.
    */
   recordedAs?: string;
+  /**
+   * The recipient domain recorded with that event, when the journey knows
+   * it. null asserts a network-wide event (support, guardian codes).
+   */
+  recordedDomain?: string | null;
   deadlineMs?: number;
 }) =>
   step({
@@ -85,17 +90,30 @@ export const expectEmailDelivered = (spec: {
 
       if (spec.recordedAs) {
         const events = requireContext(ctx.notificationEvents, 'the notification events reader');
-        const types = await events.eventTypesFor(to);
-        if (types === null) {
+        const recorded = await events.eventsFor(to);
+        if (recorded === null) {
           throw new Error(
             'NOTIFICATION_EVENTS_UNREADABLE: could not read the events notification-service ' +
               'recorded, so the event type was not checked.',
           );
         }
-        if (!types.includes(spec.recordedAs)) {
+        const checkDomain = spec.recordedDomain !== undefined;
+        const found = recorded.some(
+          (e) =>
+            e.eventType === spec.recordedAs &&
+            (!checkDomain || e.domain === spec.recordedDomain),
+        );
+        if (!found) {
+          const describe = (eventType: string, domain: string | null) =>
+            `${eventType} for ${domain ?? 'no domain'}`;
+          const wanted = checkDomain
+            ? describe(spec.recordedAs, spec.recordedDomain ?? null)
+            : spec.recordedAs;
           throw new Error(
-            `EVENT_NOT_RECORDED: the mail arrived, but no ${spec.recordedAs} event was ` +
-              `recorded for its recipient (recorded: ${types.join(', ') || 'none'}).`,
+            `EVENT_NOT_RECORDED: the mail arrived, but no ${wanted} event was recorded for ` +
+              `its recipient (recorded: ${
+                recorded.map((e) => describe(e.eventType, e.domain)).join(', ') || 'none'
+              }).`,
           );
         }
       }

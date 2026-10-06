@@ -138,9 +138,12 @@ describe('expectEmailDelivered', () => {
         ctx({
           mail: mailOf([delivered('seeker-abc@example.test')]),
           notificationEvents: {
-            eventTypesFor: async (email) => {
+            eventsFor: async (email) => {
               asked.push(email);
-              return ['item.onboarded_by_aggregator', 'item.paused'];
+              return [
+                { eventType: 'item.onboarded_by_aggregator', domain: 'seeker' },
+                { eventType: 'item.paused', domain: 'seeker' },
+              ];
             },
           },
         }),
@@ -159,10 +162,35 @@ describe('expectEmailDelivered', () => {
         }).run(
           ctx({
             mail: mailOf([delivered('seeker-abc@example.test')]),
-            notificationEvents: { eventTypesFor: async () => ['item.paused'] },
+            notificationEvents: {
+              eventsFor: async () => [{ eventType: 'item.paused', domain: 'seeker' }],
+            },
           }),
         ),
       ).rejects.toThrow(/EVENT_NOT_RECORDED.*item\.retired.*item\.paused/s);
+    });
+
+    test('checks the recipient domain when the journey knows it', async () => {
+      const run = (recordedDomain: string | null) =>
+        expectEmailDelivered({
+          to: { profile: 'seeker' },
+          about: 'x',
+          recordedAs: 'item.paused',
+          recordedDomain,
+          ...FAST,
+        }).run(
+          ctx({
+            mail: mailOf([delivered('seeker-abc@example.test')]),
+            notificationEvents: {
+              eventsFor: async () => [{ eventType: 'item.paused', domain: 'seeker' }],
+            },
+          }),
+        );
+
+      await expect(run('seeker')).resolves.toBeUndefined();
+      await expect(run('provider')).rejects.toThrow(/EVENT_NOT_RECORDED.*item\.paused for provider.*item\.paused for seeker/s);
+      // null is a claim too: a network-wide event, recorded with no domain.
+      await expect(run(null)).rejects.toThrow(/EVENT_NOT_RECORDED/);
     });
 
     test('needs the event reader when an event type is asked for', async () => {

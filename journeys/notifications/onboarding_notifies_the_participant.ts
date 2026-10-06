@@ -12,10 +12,9 @@ import { createProfile, expectEmailDelivered } from '../../src/steps/index.js';
  * over SMTP. The subject and body fragments hold on every target this runs
  * on (the catalogue copy differs between them), and the link is the stack's
  * FRONTEND_BASE_URL, which proves the CTA variable was rendered.
- *
- * expectEmailDelivered can also check the event type notification-service
- * recorded (recordedAs). These journeys do not use it yet: the service
- * leaves notification_event.event_type empty, so the check could only fail.
+ * The event notification-service recorded is checked too: signals-dpg
+ * must call this the onboarding event for a seeker, whatever template the
+ * catalogue maps it to.
  */
 export const onboardingNotifiesTheParticipant = {
   ...defineJourney({
@@ -29,6 +28,8 @@ export const onboardingNotifiesTheParticipant = {
         to: { profile: 'seeker' },
         about: 'their new account',
         subjectIncludes: 'Your account is ready',
+        recordedAs: 'item.onboarded_by_aggregator',
+        recordedDomain: 'seeker',
         bodyIncludes: ['Activate your account', 'http://localhost:5173/'],
       }),
     ],

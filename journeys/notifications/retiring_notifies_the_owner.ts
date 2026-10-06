@@ -28,6 +28,8 @@ export const retiringNotifiesTheOwner = {
         to: { profile: 'seeker' },
         about: 'their profile being retired',
         subjectIncludes: 'Your profile has been',
+        recordedAs: 'item.retired',
+        recordedDomain: 'seeker',
         bodyIncludes: ['Create a new profile', 'http://localhost:5173/'],
       }),
     ],
