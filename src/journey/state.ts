@@ -34,12 +34,13 @@ export type JourneyState = {
   /** Who signed themselves up, for the step that checks they are known. */
   signedUp?: { email: string; domain: string };
   /**
-   * The notification queue as it stood before the triggering step.
+   * Mailpit as it stood before the triggering step.
    *
-   * Seeding sends mail of its own, so "a job is queued" proves nothing --
-   * only a job absent from this baseline was caused by the step.
+   * Seeding and earlier steps send mail of their own, so "a message
+   * arrived" proves nothing -- only one absent from this baseline was
+   * caused by the step.
    */
-  notificationBaseline?: import('../awaiters/notification.js').NotificationBaseline;
+  mailBaseline?: import('../awaiters/mail.js').MailBaseline;
   baseline?: Baseline;
   seed?: string;
 };
@@ -53,7 +54,7 @@ const PROVIDED_BY: Record<keyof JourneyState, string> = {
   accounts: 'registerAccount',
   actionId: 'applyTo',
   signedUp: 'signUp',
-  notificationBaseline: 'the step that triggers the notification',
+  mailBaseline: 'the step that triggers the email',
   seed: 'the run',
 };
 

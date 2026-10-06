@@ -2,7 +2,7 @@ import { defineJourney } from '../../src/journey/define_journey.js';
 import {
   changeLifecycle,
   createProfile,
-  expectNotificationQueued,
+  expectEmailDelivered,
   waitUntilThisItemIndexed,
 } from '../../src/steps/index.js';
 
@@ -10,6 +10,9 @@ import {
  * `J14`. Retire is terminal and destructive, so the one notification that
  * must never be lost is the one saying it happened. Best-effort sending
  * means a broken pipeline erases someone's data and tells them nothing.
+ *
+ * Asserted as a delivered email. The copy says "retired" on one target and
+ * "deleted" on another, so the subject is matched on what they share.
  */
 export const retiringNotifiesTheOwner = {
   ...defineJourney({
@@ -21,12 +24,13 @@ export const retiringNotifiesTheOwner = {
       createProfile({ as: 'seeker' }),
       waitUntilThisItemIndexed(),
       changeLifecycle({ to: 'retired' }),
-      expectNotificationQueued({
-        forProfileAs: 'seeker',
+      expectEmailDelivered({
+        to: { profile: 'seeker' },
         about: 'their profile being retired',
-        templateIdIncludes: 'retire',
+        subjectIncludes: 'Your profile has been',
+        bodyIncludes: ['Create a new profile', 'http://localhost:5173/'],
       }),
     ],
   }),
-  requires: ['http', 'redis', 'postgres'] as const,
+  requires: ['http', 'redis', 'postgres', 'mail'] as const,
 };

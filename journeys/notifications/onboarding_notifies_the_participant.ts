@@ -1,5 +1,5 @@
 import { defineJourney } from '../../src/journey/define_journey.js';
-import { createProfile, expectNotificationQueued } from '../../src/steps/index.js';
+import { createProfile, expectEmailDelivered } from '../../src/steps/index.js';
 
 /**
  * `J11`. Being onboarded by an aggregator is the first a person hears of
@@ -7,12 +7,15 @@ import { createProfile, expectNotificationQueued } from '../../src/steps/index.j
  * own failures and logs them, so a broken pipeline is a quiet log line and
  * a 200. Nothing downstream notices.
  *
- * Asserted on the queue notification-service writes rather than an inbox --
- * that service speaks SES or Gmail and nothing else, so a hermetic run has
- * no mailbox. The queue is the better assertion anyway: a job only lands
- * there once /notify has validated the template against the provider's
- * allowlist and the variables against its schema, so a queued job means
- * both services still agree on the contract.
+ * Asserted as a DELIVERED email in the stack's Mailpit: notification-service
+ * resolved the template from the target's catalogue, rendered it and sent it
+ * over SMTP. The subject and body fragments hold on every target this runs
+ * on (the catalogue copy differs between them), and the link is the stack's
+ * FRONTEND_BASE_URL, which proves the CTA variable was rendered.
+ *
+ * expectEmailDelivered can also check the event type notification-service
+ * recorded (recordedAs). These journeys do not use it yet: the service
+ * leaves notification_event.event_type empty, so the check could only fail.
  */
 export const onboardingNotifiesTheParticipant = {
   ...defineJourney({
@@ -22,14 +25,15 @@ export const onboardingNotifiesTheParticipant = {
     targets: ['purple_dot/alimco', 'blue_dot/ka-dhwd'],
     steps: [
       createProfile({ as: 'seeker' }),
-      expectNotificationQueued({
-        forProfileAs: 'seeker',
+      expectEmailDelivered({
+        to: { profile: 'seeker' },
         about: 'their new account',
-        templateIdIncludes: 'aggregator_init',
+        subjectIncludes: 'Your account is ready',
+        bodyIncludes: ['Activate your account', 'http://localhost:5173/'],
       }),
     ],
   }),
-  // redis: the notification queue is read directly, the same way the ingest
-  // stream is. An http-only environment reports this NOT COVERED.
-  requires: ['http', 'redis'] as const,
+  // redis + postgres: createProfile records an ingest baseline. mail: the
+  // assertion reads Mailpit. An environment without it reports NOT COVERED.
+  requires: ['http', 'redis', 'postgres', 'mail'] as const,
 };
