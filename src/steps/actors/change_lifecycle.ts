@@ -2,7 +2,7 @@ import { step, type StepContext } from '../../journey/define_journey.js';
 import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
-import { captureNotificationBaseline } from '../../awaiters/notification.js';
+import { captureMailBaseline } from '../../awaiters/mail.js';
 
 const ACTIONS = { paused: 'pause', live: 'unpause', retired: 'retire' } as const;
 
@@ -29,12 +29,12 @@ export const changeLifecycle = (spec: { to: keyof typeof ACTIONS }) =>
       state.baseline = await captureBaseline(probe);
 
       // Taken before the write, like the ingest baseline and for the same
-      // reason: seeding sends mail of its own, so only a job absent from
-      // this set was caused by the step under test. Skipped where the
-      // environment runs no notification-service -- a journey that needs
-      // one is NOT COVERED there.
-      if (ctx.notifications) {
-        state.notificationBaseline = await captureNotificationBaseline(ctx.notifications);
+      // reason: seeding sends mail of its own, so only a message absent
+      // from this set was caused by the step under test. Skipped where the
+      // environment cannot read mail -- a journey that needs it is NOT
+      // COVERED there.
+      if (ctx.mail) {
+        state.mailBaseline = await captureMailBaseline(ctx.mail);
       }
 
       const res = await ctx.http(`${ctx.endpoints.signalsApi}/api/v1/item/lifecycle`, {

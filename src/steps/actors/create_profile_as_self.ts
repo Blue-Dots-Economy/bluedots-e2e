@@ -4,7 +4,7 @@ import type { JourneyState } from '../../journey/state.js';
 import { ADULT_AGE } from '../request_bodies.js';
 import { buildItemState } from '../../fixtures/item_state.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
-import { captureNotificationBaseline } from '../../awaiters/notification.js';
+import { captureMailBaseline } from '../../awaiters/mail.js';
 
 type CreateResponse = { item_id?: string; item_type?: string };
 
@@ -39,8 +39,8 @@ export const createProfileAsSelf = (spec: { as: string }) =>
       }
 
       state.baseline = await captureBaseline(probe);
-      if (ctx.notifications) {
-        state.notificationBaseline = await captureNotificationBaseline(ctx.notifications);
+      if (ctx.mail) {
+        state.mailBaseline = await captureMailBaseline(ctx.mail);
       }
 
       const { itemType, itemSchema } = target.schemaFor(spec.as);

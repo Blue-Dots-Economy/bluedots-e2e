@@ -58,6 +58,7 @@ const PORTS: Record<keyof DiscoveredPorts, [service: string, port: number]> = {
   keycloak: ['keycloak', 8080],
   postgres: ['postgres', 5432],
   redis: ['redis', 6379],
+  mailpit: ['mailpit', 8025],
 };
 
 /**
@@ -89,6 +90,18 @@ export class ComposeProvider implements EnvironmentProvider {
   }
 
   async up(): Promise<EnvironmentContext> {
+    // Before anything else, including the env: no catalogue means NS seeds
+    // nothing and every notification journey fails far from the cause. A
+    // deploy of this target would stop at fetch-configs for the same reason.
+    const cataloguePath = this.target.cataloguePath;
+    if (!cataloguePath) {
+      throw new Error(
+        `TARGET_UNUSABLE: ${this.target.id} has no ns-catalogue.json of its own. ` +
+          `notification-service seeds its templates and policies from it, and an ` +
+          `instance never falls back to its dot's catalogue.`,
+      );
+    }
+
     const env = buildStackEnv(this.target);
 
     // Mount the real file rather than writing a copy: the container then
@@ -131,6 +144,9 @@ export class ComposeProvider implements EnvironmentProvider {
           ] as const)
         : []),
       ...(stubDir ? ([{ path: stubDir, kind: 'directory' }] as const) : []),
+      // A single file, mounted where NS_SEED_FILE points. Mounted as a
+      // directory instead, NS would fail to read its seed file minutes in.
+      { path: cataloguePath, kind: 'file' },
     ]);
 
     // And fail before boot on a service the base compose has grown that
@@ -161,10 +177,9 @@ export class ComposeProvider implements EnvironmentProvider {
       );
     }
 
-    // notification-service reads its HMAC secrets from a mounted file, and
-    // signals-dpg signs with the matching pair from stack_env. Generated
-    // from one source so the two halves cannot drift into a 401 that reads
-    // like the service being down.
+    // notification-service refuses to boot without its internal-secrets
+    // file. signals-dpg sends with a Keycloak bearer token, so the one key
+    // in it is never used to sign anything.
     const notificationSecretsDir = join(this.deps.runDir, 'notification');
     await this.deps.writeFile(
       join(notificationSecretsDir, 'internal-secrets.json'),
@@ -239,8 +254,9 @@ export class ComposeProvider implements EnvironmentProvider {
       endpoints,
       realmMutations,
       // A compose stack exposes the ingest stream and the read model, which
-      // is what lets a journey prove an event crossed the spine.
-      capabilities: ['http', 'redis', 'postgres'],
+      // is what lets a journey prove an event crossed the spine, and the
+      // mailpit notification-service delivers to.
+      capabilities: ['http', 'redis', 'postgres', 'mail'],
       digests: this.deps.digests,
       disposable: true,
     };

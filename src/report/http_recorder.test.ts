@@ -47,6 +47,62 @@ describe('createRecorder', () => {
     expect(recorded).toContain('REDACTED');
   });
 
+  test('redacts one-time codes in bodies and urls, which the login posts', async () => {
+    // The browser login posts the emailed code as a form field, and the
+    // callback carries the authorisation code in its query.
+    const rec = createRecorder((async () => new Response('ok')) as unknown as typeof fetch);
+
+    await rec.fetch('http://kc/auth?session_code=s&execution=e', {
+      method: 'POST',
+      body: 'otp=482913',
+    });
+    await rec.fetch('http://api/cb?code=abc.def&state=s1', {});
+    await rec.fetch('http://api/verify', {
+      method: 'POST',
+      body: JSON.stringify({ network: 'blue_dot', otp: '482913', password: 'pw' }),
+    });
+
+    const all = JSON.stringify(rec.entries);
+    expect(all).not.toContain('482913');
+    expect(all).not.toContain('abc.def');
+    expect(all).not.toContain('"pw"');
+    expect(rec.entries[0]!.requestBody).toBe('otp=REDACTED');
+    expect(rec.entries[0]!.url).toContain('session_code=s');
+    expect(rec.entries[1]!.url).toBe('http://api/cb?code=REDACTED&state=s1');
+  });
+
+  test('redacts a guardian code, which the guardian verify posts as guardian_otp', async () => {
+    const rec = createRecorder((async () => new Response('ok')) as unknown as typeof fetch);
+
+    await rec.fetch('http://api/guardian/verify', {
+      method: 'POST',
+      body: JSON.stringify({ guardian_otp: '482913', ward: 'w1' }),
+    });
+    await rec.fetch('http://api/guardian/verify?guardian_otp=551234', {});
+
+    const all = JSON.stringify(rec.entries);
+    expect(all).not.toContain('482913');
+    expect(all).not.toContain('551234');
+    expect(rec.entries[0]!.requestBody).toBe('{"guardian_otp":"REDACTED","ward":"w1"}');
+  });
+
+  test('redacts a code sent as a JSON number, not only as a string', async () => {
+    // A 6-digit code is as easily posted as 482913 as "482913".
+    const rec = createRecorder((async () => new Response('ok')) as unknown as typeof fetch);
+
+    await rec.fetch('http://api/verify', {
+      method: 'POST',
+      body: '{"otp": 482913, "code":-7.5e2, "password":123,"guardian_otp":99, "keep": 42}',
+    });
+
+    const body = rec.entries[0]!.requestBody!;
+    expect(body).not.toMatch(/482913|7\.5e2|123|99/);
+    expect(body).toBe(
+      '{"otp": "REDACTED", "code":"REDACTED", "password":"REDACTED","guardian_otp":"REDACTED", "keep": 42}',
+    );
+    expect(JSON.parse(body)).toBeTruthy();
+  });
+
   test('attributes each call to the step that made it', async () => {
     const rec = createRecorder(async () => new Response('{}', { status: 200 }));
 
