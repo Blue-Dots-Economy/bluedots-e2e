@@ -13,9 +13,7 @@ const apiEnv = {
   SIGNALS_SEARCH_URL: 'http://signals-search-api:3100',
   SIGNALS_SEARCH_API_KEY: 'sk_x',
   NOTIFICATION_SERVICE_ENDPOINT: 'http://notification-service:4000',
-  NOTIFICATION_SERVICE_KEY_ID: 'k',
-  NOTIFICATION_SERVICE_SECRET: 's',
-  NOTIFICATION_FROM_EMAIL: 'no-reply@journey.local',
+  KEYCLOAK_API_CLIENT_SECRET: 'journey-signals-api-secret',
   FRONTEND_BASE_URL: 'http://localhost:3000',
 };
 
@@ -47,12 +45,12 @@ describe('assertContainerEnv', () => {
 
   test('treats a variable rendered as null the same way', () => {
     expect(() =>
-      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, NOTIFICATION_SERVICE_SECRET: null } })),
-    ).toThrow(/NOTIFICATION_SERVICE_SECRET/);
+      assertContainerEnv(rendered({ 'signals-api': { ...apiEnv, KEYCLOAK_API_CLIENT_SECRET: null } })),
+    ).toThrow(/KEYCLOAK_API_CLIENT_SECRET/);
   });
 
   test('reports every missing variable at once, not the first', () => {
-    const { SIGNALS_SEARCH_URL: _a, NOTIFICATION_FROM_EMAIL: _b, ...missing } = apiEnv;
+    const { SIGNALS_SEARCH_URL: _a, KEYCLOAK_API_CLIENT_SECRET: _b, ...missing } = apiEnv;
     let message = '';
     try {
       assertContainerEnv(rendered({ 'signals-api': missing }));
@@ -61,7 +59,17 @@ describe('assertContainerEnv', () => {
     }
 
     expect(message).toMatch(/SIGNALS_SEARCH_URL/);
-    expect(message).toMatch(/NOTIFICATION_FROM_EMAIL/);
+    expect(message).toMatch(/KEYCLOAK_API_CLIENT_SECRET/);
+  });
+
+  test('requires the keycloak client secret signals-api mints its NS token with', () => {
+    // Without it getNotificationClient() returns undefined and the API sends
+    // nothing and logs nothing.
+    const { KEYCLOAK_API_CLIENT_SECRET: _, ...missing } = apiEnv;
+
+    expect(() => assertContainerEnv(rendered({ 'signals-api': missing }))).toThrow(
+      /KEYCLOAK_API_CLIENT_SECRET/,
+    );
   });
 
   test('fails when the service the table names is not in the stack at all', () => {

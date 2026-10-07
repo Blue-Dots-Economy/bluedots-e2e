@@ -49,6 +49,35 @@ describe('resolveTarget', () => {
     expect(purple.servedDomains).toBe('purple_dot/seeker,purple_dot/provider');
   });
 
+  test('reads the network id from the resolved config', async () => {
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'ka-dhwd');
+
+    // NS_NETWORK must equal the id the catalogue's rows are seeded under,
+    // which is the config's own id, not the directory name.
+    expect(t.networkId).toBe('blue_dot');
+  });
+
+  test('resolves the instance catalogue for notification-service', async () => {
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'ka-dhwd');
+
+    expect(t.cataloguePath).toBe(`${SCHEMAS}/blue_dot/ka-dhwd/ns-catalogue.json`);
+  });
+
+  test('a dot target uses the dot catalogue', async () => {
+    const t = await resolveTarget(SCHEMAS, 'purple_dot', null);
+
+    expect(t.cataloguePath).toBe(`${SCHEMAS}/purple_dot/ns-catalogue.json`);
+  });
+
+  test('an instance never falls back to the dot catalogue', async () => {
+    // blue_dot/ns-catalogue.json exists in the fixtures, up-gzb has none of
+    // its own. Seeding never overwrites, so a fallback would pin the dot's
+    // copy on the instance for good; the deployed chart refuses it too.
+    const t = await resolveTarget(SCHEMAS, 'blue_dot', 'up-gzb');
+
+    expect(t.cataloguePath).toBeNull();
+  });
+
   test('refuses a dot that has instances, naming what is available', async () => {
     await expect(resolveTarget(SCHEMAS, 'blue_dot', null)).rejects.toThrow(
       /blue_dot\/ka-dhwd/,
