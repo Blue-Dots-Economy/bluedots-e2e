@@ -111,10 +111,16 @@ opinion, and a zizmor workflow lint whose pinning gate fails a pull request
 using an action not pinned to a full commit SHA. Findings land in
 **Security → Code scanning**.
 
-**Green means "the scan ran", not "nothing was found."** It is report-only
-(`block: false`), so a finding does not fail the check. Read the run log for
-a non-zero `N commits scanned` — that number is the evidence the scan was
-neither skipped nor shallow.
+**A committed secret fails the check; a dependency CVE does not.** The
+caller sets `block-secrets: true`, so a gitleaks finding anywhere in the
+history turns the pull request red. Everything else stays report-only
+(`block: false`): trivy findings — CVEs, misconfiguration, and its own
+filesystem secret detection — and `pnpm audit` land in Code scanning while
+the job still passes, so for those a green tick means "the scan ran", not
+"nothing was found." The gitleaks step also fails closed: if the run log
+does not show a non-zero `N commits scanned`, the check fails rather than
+passing as clean, because that number is the evidence the scan was neither
+skipped nor shallow.
 
 One-time setup:
 
