@@ -80,6 +80,84 @@ signals-search at all. Entries list what a service **reads**, not
 everything it is handed: add one when a variable's absence degrades the
 service silently, not for every variable the overlay sets.
 
+## Secret scanning
+
+This repository is public, and the harness authenticates against real
+environments. `.gitignore` covers `.env` and `.env.*`, but that is a
+convention rather than a control: a credential pasted into a fixture, a
+captured response body, or a config file matching neither pattern is
+committed with nothing objecting — and on a public remote, pushing it is
+disclosure. Rewriting history afterwards does not undo that.
+
+Two layers, deliberately unequal:
+
+| | Runs | Scans |
+| --- | --- | --- |
+| `.github/workflows/security.yml` | every pull request, and pushes to `develop`/`main` | the full history |
+| `.pre-commit-config.yaml` | locally, on `git commit` | the staged diff |
+
+The workflow is the control — it runs whether or not you installed
+anything. The hook is the courtesy: it catches the same thing before the
+push, which is the only point at which the problem is still private. Both
+run gitleaks **v8.30.1** with `--redact`, so a finding never prints the
+credential it just caught into a world-readable Actions log or a shared
+terminal.
+
+`security.yml` is a thin caller into `bluedots-automation`'s shared
+`security-scan.yml`, the same one every other public repository in the
+estate uses. Besides gitleaks it brings `trivy-fs` (dependency CVEs, IaC
+misconfiguration, filesystem secret detection), `pnpm audit` as a second
+opinion, and a zizmor workflow lint whose pinning gate fails a pull request
+using an action not pinned to a full commit SHA. Findings land in
+**Security → Code scanning**.
+
+**A committed secret fails the check; a dependency CVE does not.** The
+caller sets `block-secrets: true`, so a gitleaks finding anywhere in the
+history turns the pull request red. Everything else stays report-only
+(`block: false`): trivy findings — CVEs, misconfiguration, and its own
+filesystem secret detection — and `pnpm audit` land in Code scanning while
+the job still passes, so for those a green tick means "the scan ran", not
+"nothing was found." The gitleaks step also fails closed: if the run log
+does not show a non-zero `N commits scanned`, the check fails rather than
+passing as clean, because that number is the evidence the scan was neither
+skipped nor shallow.
+
+One-time setup:
+
+```bash
+pip install pre-commit && pre-commit install
+```
+
+The other three hooks are not gitleaks' job: `detect-private-key` for the
+one credential shape that arrives as a file rather than a string,
+`check-added-large-files` for a keystore or response dump that a public
+history would keep forever, and `check-merge-conflict` because a committed
+conflict marker means the file was not read before staging.
+
+If gitleaks flags something that is genuinely a test fixture, put its
+fingerprint in `.gitleaksignore`, with the reason on its own line above it.
+If it flags a live credential, **rotate it and raise an issue** — do not
+allowlist it. History is clean as of this writing, which is why no
+`.gitleaksignore` exists yet.
+
+**If you write a test canary, it has to match the rule's alphabet.** At
+v8.30.1 the AWS rule is
+`\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b` — base32,
+**excluding 0, 1, 8 and 9** — plus an allowlist for anything ending
+`EXAMPLE`. So the familiar `AKIAIOSFODNN7EXAMPLE`, and any fake key
+containing those digits, is silently ignored. Both failures look exactly
+like a broken scanner; two canaries were lost to this before the third
+worked. Use `AKIA` plus 16 characters drawn from `[A-Z2-7]`.
+
+The workflow scans **every branch**, not just the one under review.
+`fetch-depth: 0` plus gitleaks' default `git log --all` means a credential
+on any unmerged branch turns every pull request red — including ones that
+touch nothing related, and the blocked author cannot fix it from their own
+branch. On a public repository that is the honest behaviour, since a
+credential is disclosed wherever it sits, but it does mean a red check here
+is not always about your own change. The way out is to rotate and
+allowlist, never to narrow the scan.
+
 ## In CI
 
 `.github/workflows/journey.yml`, on `workflow_dispatch`. Give it the
