@@ -75,6 +75,11 @@ updates:
       dev-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      # CI and journey.yml run Node 22; newer @types/node would type-check APIs
+      # that don't exist at runtime. Lift together with the node-version bump.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions. Every workflow in this repository pins its actions by
   # commit SHA, and a SHA pin never expires and never warns -- it simply keeps
@@ -112,7 +117,8 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-# No `ignore:` entries, deliberately. signals-search holds the vitest major
+# No vitest hold, deliberately (the one `ignore:` above is @types/node).
+# signals-search holds the vitest major
 # because @vitest/coverage-v8 peers on the exact vitest version, so moving one
 # alone leaves an unmet peer and a silently broken coverage run. That coupling
 # does not exist here -- this repository has no coverage tooling, no
