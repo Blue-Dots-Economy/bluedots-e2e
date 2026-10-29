@@ -3,7 +3,7 @@ import { requireContext, requireState } from '../../journey/state.js';
 import type { JourneyState } from '../../journey/state.js';
 import { buildUpsertBody, extractItemKey } from '../request_bodies.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
-import { captureNotificationBaseline } from '../../awaiters/notification.js';
+import { captureMailBaseline } from '../../awaiters/mail.js';
 
 /**
  * Edit a profile through the same upsert that created it.
@@ -45,8 +45,8 @@ export const editProfile = (spec: { as: string }) =>
       const edited = { ...profile.itemState, [field]: `${String(profile.itemState[field])}-edited` };
 
       state.baseline = await captureBaseline(probe);
-      if (ctx.notifications) {
-        state.notificationBaseline = await captureNotificationBaseline(ctx.notifications);
+      if (ctx.mail) {
+        state.mailBaseline = await captureMailBaseline(ctx.mail);
       }
 
       const { itemType } = target.schemaFor(spec.as);

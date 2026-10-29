@@ -149,6 +149,41 @@ describe('renderMarkdown', () => {
     expect(md).toContain('POST http://127.0.0.1:54322/v1/search');
   });
 
+  test('never prints a one-time code from a failed request', () => {
+    const md = renderMarkdown({
+      ...PASSING,
+      journeys: [
+        {
+          ...J2_PASS,
+          status: 'failed',
+          steps: [
+            {
+              label: 'Logged in',
+              status: 'failed',
+              durationMs: 34,
+              error: 'LOGIN_FAILED: 500',
+              http: [
+                {
+                  step: 'J2 — Logged in',
+                  method: 'POST',
+                  url: 'http://api/cb?code=abc.def&state=s1',
+                  status: 500,
+                  durationMs: 38,
+                  requestHeaders: {},
+                  requestBody: '{"otp":482913}',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(md).not.toContain('abc.def');
+    expect(md).not.toContain('482913');
+    expect(md).toContain('code=REDACTED');
+  });
+
   test('escapes a pipe, which would otherwise split a table cell', () => {
     const md = renderMarkdown({
       ...PASSING,

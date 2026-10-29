@@ -30,6 +30,10 @@ const HARNESS_PREFIXES = [
   'OVERLAY_INCOMPLETE',
   'OVERLAY_UNKNOWN_SERVICE',
   'INGEST_PROBE_UNREADABLE',
+  // The harness could not read Mailpit or the NS event table: nothing was
+  // verified, which says nothing about the release.
+  'MAIL_PROBE_UNREADABLE',
+  'NOTIFICATION_EVENTS_UNREADABLE',
   // The likeliest misconfiguration on a fresh machine is a wrong
   // AGGREGATOR_DPG_PATH, and it must not block a release candidate.
   'BIND_SOURCE_MISSING',

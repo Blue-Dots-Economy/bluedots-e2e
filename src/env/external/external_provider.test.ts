@@ -18,6 +18,7 @@ const TARGET = {
   id: 'purple_dot', dot: 'purple_dot', instance: null,
   networkConfigPath: '/schemas/purple_dot/network.json',
   consentPath: null, brandPath: null, servedDomains: 'purple_dot/seeker',
+  networkId: 'purple_dot', cataloguePath: null,
 };
 
 describe('parseEnvironmentFile', () => {
@@ -63,6 +64,31 @@ describe('ExternalProvider', () => {
     // rather than silently asserting something weaker.
     expect(ctx.capabilities).toEqual(['http']);
     expect(ctx.disposable).toBe(false);
+  });
+
+  test('does not claim mail when the config names no mailpit', async () => {
+    // A config can list 'mail', but without an endpoint the harness has no
+    // way to read delivered mail, so a mail journey must be NOT COVERED.
+    const cfg = { ...CONFIG, capabilities: ['http', 'mail'] };
+    const ctx = await new ExternalProvider(TARGET, parseEnvironmentFile(JSON.stringify(cfg)), {
+      probe: async () => true,
+    }).up();
+
+    expect(ctx.capabilities).toEqual(['http']);
+  });
+
+  test('offers mail when the config declares a mailpit endpoint', async () => {
+    const cfg = {
+      ...CONFIG,
+      capabilities: ['http', 'mail'],
+      endpoints: { ...CONFIG.endpoints, mailpit: 'https://mail.dev.example' },
+    };
+    const ctx = await new ExternalProvider(TARGET, parseEnvironmentFile(JSON.stringify(cfg)), {
+      probe: async () => true,
+    }).up();
+
+    expect(ctx.capabilities).toEqual(['http', 'mail']);
+    expect(ctx.endpoints.mailpit).toBe('https://mail.dev.example');
   });
 
   test('fails naming the endpoint that did not answer', async () => {

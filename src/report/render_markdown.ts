@@ -2,6 +2,7 @@ import { caseNameOf, type JourneyView } from './journey_views.js';
 import { duration, failedRequests, isFailedRequest, seconds } from './format.js';
 import { classifyFailure } from './failure_class.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
+import { redactSecrets } from './http_recorder.js';
 
 /** A pipe ends a table cell, so any text going into one has to lose it. */
 const cell = (text: string) => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -17,9 +18,11 @@ function excerpt(text: string, max = 600): string {
 
 function failedRequest(h: HttpEntryView): string {
   const status = h.error ?? String(h.status);
+  // Redacted again on the way out, as render_html does: the summary is
+  // posted where anyone who can see the run reads it.
   return [
-    `\`${h.method} ${h.url}\` → **${status}** (${duration(h.durationMs)})`,
-    ...(h.requestBody ? ['', 'Request', '```json', excerpt(h.requestBody), '```'] : []),
+    `\`${h.method} ${redactSecrets(h.url)}\` → **${status}** (${duration(h.durationMs)})`,
+    ...(h.requestBody ? ['', 'Request', '```json', excerpt(redactSecrets(h.requestBody)), '```'] : []),
     ...(h.responseBody ? ['', 'Response', '```json', excerpt(h.responseBody), '```'] : []),
   ].join('\n');
 }

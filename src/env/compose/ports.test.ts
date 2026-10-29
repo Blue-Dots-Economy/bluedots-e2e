@@ -24,7 +24,7 @@ describe('parsePublishedPort', () => {
 describe('buildEndpoints', () => {
   test('builds host URLs from the discovered ephemeral ports', () => {
     const e = buildEndpoints(
-      { signalsApi: 55020, searchApi: 55019, keycloak: 55018, postgres: 55017, redis: 55016 },
+      { signalsApi: 55020, searchApi: 55019, keycloak: 55018, postgres: 55017, redis: 55016, mailpit: 55015 },
       { postgresUser: 'postgres', postgresPassword: 'pw', postgresDb: 'db', redisPassword: 'rpw' },
     );
 
@@ -32,9 +32,18 @@ describe('buildEndpoints', () => {
     expect(e.searchApi).toBe('http://localhost:55019');
   });
 
+  test('reaches the mailpit API on its discovered port', () => {
+    const e = buildEndpoints(
+      { signalsApi: 1, searchApi: 2, keycloak: 3, postgres: 4, redis: 5, mailpit: 55015 },
+      { postgresUser: 'postgres', postgresPassword: 'pw', postgresDb: 'db', redisPassword: 'rpw' },
+    );
+
+    expect(e.mailpit).toBe('http://localhost:55015');
+  });
+
   test('builds DSNs the awaiter can connect with from the host', () => {
     const e = buildEndpoints(
-      { signalsApi: 1, searchApi: 2, keycloak: 3, postgres: 55017, redis: 55016 },
+      { signalsApi: 1, searchApi: 2, keycloak: 3, postgres: 55017, redis: 55016, mailpit: 4 },
       { postgresUser: 'postgres', postgresPassword: 'pw', postgresDb: 'db', redisPassword: 'rpw' },
     );
 

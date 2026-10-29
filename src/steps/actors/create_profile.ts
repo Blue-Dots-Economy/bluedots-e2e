@@ -4,7 +4,7 @@ import type { JourneyState } from '../../journey/state.js';
 import { buildUpsertBody, extractItemKey, ADULT_AGE } from '../request_bodies.js';
 import { buildItemState } from '../../fixtures/item_state.js';
 import { captureBaseline } from '../../awaiters/ingest.js';
-import { captureNotificationBaseline } from '../../awaiters/notification.js';
+import { captureMailBaseline } from '../../awaiters/mail.js';
 
 /**
  * Create a profile that is actually searchable.
@@ -56,12 +56,12 @@ export const createProfile = (spec: {
       state.baseline = await captureBaseline(probe);
 
       // Taken before the write, like the ingest baseline and for the same
-      // reason: seeding sends mail of its own, so only a job absent from
-      // this set was caused by the step under test. Skipped where the
-      // environment runs no notification-service -- a journey that needs
-      // one is NOT COVERED there.
-      if (ctx.notifications) {
-        state.notificationBaseline = await captureNotificationBaseline(ctx.notifications);
+      // reason: seeding sends mail of its own, so only a message absent
+      // from this set was caused by the step under test. Skipped where the
+      // environment cannot read mail -- a journey that needs it is NOT
+      // COVERED there.
+      if (ctx.mail) {
+        state.mailBaseline = await captureMailBaseline(ctx.mail);
       }
 
       // Resolved from the domain this step acts as, not from whatever
@@ -141,9 +141,8 @@ export const createProfile = (spec: {
       state.itemKey = key;
       // Kept by domain as well, so an action journey can name which of its
       // two profiles a later step means.
-      // user_id as well as the address: signals-dpg keys its notification
-      // dedupe on the OWNER, not on the recipient, so this is what makes a
-      // queued notification attributable to this profile.
+      // user_id as well as the address: steps that act AS this person
+      // (accept, reveal) need the owner, and the email is who mail goes to.
       state.profiles = {
         ...state.profiles,
         [spec.as]: { key, itemState, email, userId: created.user_id ?? '' },

@@ -15,9 +15,9 @@ const MAX_BODY = 4000;
 /**
  * Anything whose value is a credential, not just anything that looks odd.
  *
- * Exported because the renderer redacts again on the way out: a report is a
- * CI artifact, and one recorder that forgot to redact should not be able to
- * put a live key on a page.
+ * Exported because the renderer redacts headers again on the way out: a
+ * report is a CI artifact, and one recorder that forgot to redact should not
+ * be able to put a live key on a page.
  */
 export const SECRET_HEADERS = ['x-api-key', 'authorization', 'cookie', 'set-cookie'];
 
@@ -29,6 +29,31 @@ function redact(headers: Record<string, string>): Record<string, string> {
     out[k] = SECRET_HEADERS.includes(k.toLowerCase()) ? 'REDACTED' : v;
   }
   return out;
+}
+
+/**
+ * Fields whose value is a one-time code or a password. The browser login
+ * posts the emailed code as a form field, the BFF callback carries the
+ * authorisation code in its query, and the guardian verify posts
+ * `guardian_otp`; a report must hold none of them.
+ */
+const SECRET_FIELDS = ['guardian_otp', 'otp', 'code', 'password'];
+
+const FORM_FIELD = new RegExp(`(^|[?&])(${SECRET_FIELDS.join('|')})=[^&#]*`, 'gi');
+// A string or a number: a 6-digit code is as easily posted as 482913 as
+// "482913", and a string-only pattern leaves the bare number in the report.
+const JSON_FIELD = new RegExp(
+  `("(?:${SECRET_FIELDS.join('|')})"\\s*:\\s*)(?:"(?:[^"\\\\]|\\\\.)*"|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)`,
+  'gi',
+);
+
+/**
+ * Exported for the renderer, which redacts urls and request bodies again on
+ * the way out: a recording written by an older harness, or by a recorder
+ * that forgot, must not be able to put a code on a page.
+ */
+export function redactSecrets(text: string): string {
+  return text.replace(FORM_FIELD, '$1$2=REDACTED').replace(JSON_FIELD, '$1"REDACTED"');
 }
 
 function truncate(body: string): string {
@@ -68,11 +93,11 @@ export function createRecorder(impl: typeof fetch = fetch) {
       const entry: HttpEntry = {
         step,
         method: init?.method ?? (url instanceof Request ? url.method : 'GET'),
-        url: url instanceof Request ? url.url : String(url),
+        url: redactSecrets(url instanceof Request ? url.url : String(url)),
         status: null,
         durationMs: 0,
         requestHeaders: redact(headersOf(init)),
-        ...(init?.body ? { requestBody: truncate(String(init.body)) } : {}),
+        ...(init?.body ? { requestBody: truncate(redactSecrets(String(init.body))) } : {}),
       };
 
       try {

@@ -1,4 +1,4 @@
-import { SECRET_HEADERS } from './http_recorder.js';
+import { SECRET_HEADERS, redactSecrets } from './http_recorder.js';
 import { duration, escapeHtml as escape, failedRequests, isFailedRequest, seconds } from './format.js';
 import { caseNameOf, type JourneyView, type StepView } from './journey_views.js';
 
@@ -98,11 +98,16 @@ function renderHttp(h: HttpEntryView, expected = false): string {
   // page then gave no way to find, since request detail only rendered
   // inside failed steps.
   const failed = isFailedRequest(h) && !expected;
+  const url = redactSecrets(h.url);
   const detail = [
     Object.keys(h.requestHeaders).length
       ? `<div><div class="blk-label">Request headers</div>${headerTable(h.requestHeaders)}</div>`
       : '',
-    h.requestBody ? `<div><div class="blk-label">Request body</div>${body(h.requestBody)}</div>` : '',
+    // Redacted again on the way out, like the headers: a code in a url or a
+    // posted body is as much a credential as an api key.
+    h.requestBody
+      ? `<div><div class="blk-label">Request body</div>${body(redactSecrets(h.requestBody))}</div>`
+      : '',
     h.responseBody
       ? `<div><div class="blk-label">Response body</div>${body(h.responseBody)}</div>`
       : '',
@@ -113,7 +118,7 @@ function renderHttp(h: HttpEntryView, expected = false): string {
               <div class="http">
                 <div class="http-head${failed ? ' err' : ''}">
                   <span class="method ${escape(h.method.toLowerCase())}">${escape(h.method)}</span>
-                  <span class="http-url" title="${escape(h.url)}">${escape(h.url)}</span>
+                  <span class="http-url" title="${escape(url)}">${escape(url)}</span>
                   <span class="http-status ${expected ? 's2' : statusClass(h)}">${h.error || h.status === null ? 'ERR' : String(h.status)}</span>
                   ${expected && isFailedRequest(h) ? '<span class="expected">expected</span>' : ''}
                   <span class="http-dur">${duration(h.durationMs)}</span>

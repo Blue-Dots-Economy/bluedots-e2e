@@ -8,6 +8,8 @@ export type DiscoveredPorts = {
   keycloak: number;
   postgres: number;
   redis: number;
+  /** Mailpit's HTTP API and UI (container port 8025). */
+  mailpit: number;
 };
 
 export type Endpoints = {
@@ -16,6 +18,8 @@ export type Endpoints = {
   keycloak: string;
   postgresUrl: string;
   redisUrl: string;
+  /** Mailpit's HTTP API, where delivered mail is read. */
+  mailpit: string;
 };
 
 /**
@@ -48,5 +52,6 @@ export function buildEndpoints(
     keycloak: `http://localhost:${ports.keycloak}`,
     postgresUrl: `postgres://${creds.postgresUser}:${creds.postgresPassword}@localhost:${ports.postgres}/${creds.postgresDb}`,
     redisUrl: `redis://:${creds.redisPassword}@localhost:${ports.redis}`,
+    mailpit: `http://localhost:${ports.mailpit}`,
   };
 }

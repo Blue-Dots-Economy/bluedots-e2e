@@ -425,6 +425,37 @@ describe('request and response detail', () => {
     expect(renderHtml(leaked)).not.toContain('sk_signals_live');
   });
 
+  test('never prints a one-time code in a url or request body recorded by mistake', () => {
+    const leaked: RunReport = {
+      ...TREE,
+      journeys: [
+        {
+          ...J2,
+          steps: [
+            {
+              ...J2.steps[1]!,
+              http: [
+                {
+                  ...failing,
+                  url: 'http://api/cb?code=abc.def&state=s1',
+                  requestBody: '{"guardian_otp":"482913","otp":551234}',
+                },
+                { ...failing, url: 'http://kc/auth', requestBody: 'otp=771122' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const html = renderHtml(leaked);
+    expect(html).not.toContain('abc.def');
+    expect(html).not.toContain('482913');
+    expect(html).not.toContain('551234');
+    expect(html).not.toContain('771122');
+    expect(html).toContain('code=REDACTED');
+  });
+
   test('escapes a response body, which is the least trusted text on the page', () => {
     const nasty: RunReport = {
       ...TREE,
