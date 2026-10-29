@@ -1,0 +1,6 @@
+# Not a workspace (single package) -- pnpm 10.33 ignores package.json's
+# "pnpm.overrides" field, so overrides have to live here instead.
+overrides:
+  vite@<7.3.7: 7.3.7
+  source-map-js@<1.2.2: 1.2.2
+  brace-expansion@>=2.0.0 <2.1.7: 2.1.7
