@@ -60,7 +60,11 @@ export class ExternalProvider implements EnvironmentProvider {
     return {
       target: this.target,
       endpoints: this.config.endpoints,
-      capabilities: this.config.capabilities,
+      // Mail is readable only through a declared Mailpit endpoint. Claiming
+      // it without one would run a mail journey that can only time out.
+      capabilities: this.config.endpoints.mailpit
+        ? this.config.capabilities
+        : this.config.capabilities.filter((c) => c !== 'mail'),
       // No images were resolved because none were booted; the report says
       // so rather than implying provenance it does not have.
       digests: {},

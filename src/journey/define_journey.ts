@@ -24,11 +24,17 @@ export type StepContext = {
   /** Present only where the environment offers redis + postgres. */
   probe?: import('../awaiters/ingest.js').IngestProbe;
   /**
-   * Reads the queues notification-service writes to. Present only where the
-   * environment runs it -- a journey asserting a notification reports NOT
-   * COVERED elsewhere rather than asserting something weaker.
+   * Reads the stack's Mailpit, where notification-service delivers. Present
+   * only where the environment offers the mail capability -- a journey
+   * asserting a delivered email reports NOT COVERED elsewhere rather than
+   * asserting something weaker.
    */
-  notifications?: import('../awaiters/notification.js').NotificationProbe;
+  mail?: import('../awaiters/mail.js').MailProbe;
+  /**
+   * Reads the event types notification-service recorded. Present where the
+   * harness can reach that service's own database (a compose stack).
+   */
+  notificationEvents?: import('../awaiters/notification_events.js').NotificationEvents;
   /**
    * Mints a credential that authenticates AS a participant. Present only
    * where the environment offers postgres -- a journey where a person acts

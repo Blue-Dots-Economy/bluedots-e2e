@@ -4,9 +4,11 @@
  * `http` alone means assertions can only go through service APIs. `redis`
  * and `postgres` mean the harness can observe the ingest stream and the read
  * model directly, which is what lets a journey prove an event actually
- * traversed the spine rather than that the data arrived somehow.
+ * traversed the spine rather than that the data arrived somehow. `mail`
+ * means the harness can read the stack's Mailpit, so a journey can assert
+ * an email was delivered rather than merely accepted.
  */
-export type Capability = 'http' | 'redis' | 'postgres';
+export type Capability = 'http' | 'redis' | 'postgres' | 'mail';
 
 export type CapabilityCheck =
   | { runnable: true }

@@ -83,6 +83,15 @@ export type ResolvedTarget = Target & {
    * adding a target free of test code.
    */
   servedDomains: string;
+  /** network.json's own `id`: the network notification-service serves (NS_NETWORK). */
+  networkId: string;
+  /**
+   * The notification-service catalogue this target deploys with: the
+   * target directory's own `ns-catalogue.json` (the instance's for an
+   * instance target, the dot's for a dot target), with no fallback between
+   * them. Null when it has none; the compose provider refuses to boot then.
+   */
+  cataloguePath: string | null;
 };
 
 async function firstExisting(...paths: string[]): Promise<string | null> {
@@ -135,5 +144,11 @@ export async function resolveTarget(
     ),
     brandPath: await firstExisting(join(dir, 'brand.json'), join(dotDir, 'brand.json')),
     servedDomains,
+    networkId: config.id,
+    // The target's own file only, never the dot's: the deployed chart
+    // requires the brand catalogue when a brand is set and never falls back,
+    // because seeding never overwrites and a fallback would pin the wrong
+    // copy for good. The harness verifies what a deploy would seed.
+    cataloguePath: await firstExisting(join(dir, 'ns-catalogue.json')),
   };
 }

@@ -34,14 +34,13 @@ export const REQUIRED_CONTAINER_ENV: Record<string, readonly string[]> = {
     // query and never calls signals-search.
     'SIGNALS_SEARCH_URL',
     'SIGNALS_SEARCH_API_KEY',
-    // Without all three getNotificationClient() returns undefined, and the
-    // API sends nothing and logs nothing.
+    // Without both getNotificationClient() returns undefined, and the API
+    // sends nothing and logs nothing. The secret is the signals-api Keycloak
+    // client's: it mints the bearer token notification-service accepts.
     'NOTIFICATION_SERVICE_ENDPOINT',
-    'NOTIFICATION_SERVICE_KEY_ID',
-    'NOTIFICATION_SERVICE_SECRET',
-    // Both required by resolveNotifierConfig, which returns null WITHOUT
-    // logging when either is missing.
-    'NOTIFICATION_FROM_EMAIL',
+    'KEYCLOAK_API_CLIENT_SECRET',
+    // resolveNotifierConfig() also needs a URL source and returns null
+    // WITHOUT logging when there is none; this stack has no UI_HOST_BINDINGS.
     'FRONTEND_BASE_URL',
   ],
 };

@@ -12,7 +12,15 @@ type SignupResponse = { ok?: boolean; alreadyRegistered?: boolean };
  * unverified until an OTP login proves they own the address. Nothing else
  * in this suite exercises the public front door.
  */
-export const signUp = (spec: { as: string }) =>
+export const signUp = (spec: {
+  as: string;
+  /**
+   * The age to sign up with. Defaults to an adult. null leaves it out, so
+   * it can be recorded after the first login -- the way a minor's guardian
+   * flow starts, since a recorded age can never be changed.
+   */
+  age?: number | null;
+}) =>
   step({
     label: `Signed themselves up as a ${spec.as.replace(/_/g, ' ')}`,
     run: async (ctx: StepContext) => {
@@ -32,9 +40,9 @@ export const signUp = (spec: { as: string }) =>
           name: `Journey self ${spec.as}`,
           email,
           domain: spec.as,
-          // Adult: a minor is gated behind guardian consent and would not
-          // reach the same end state.
-          age: 30,
+          // Adult by default: a minor is gated behind guardian consent and
+          // would not reach the same end state.
+          ...(spec.age === null ? {} : { age: spec.age ?? 30 }),
         }),
       });
 

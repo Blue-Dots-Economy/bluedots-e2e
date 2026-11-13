@@ -33,7 +33,7 @@ const okResponse = () =>
 const ctx = (http: typeof fetch): StepContext => ({
   clients: {},
   state: { seed: 'abc123' },
-  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '' },
+  endpoints: { signalsApi: 'http://signals', searchApi: '', keycloak: '', postgresUrl: '', redisUrl: '', mailpit: '' },
   seeded: {},
   http,
   probe,

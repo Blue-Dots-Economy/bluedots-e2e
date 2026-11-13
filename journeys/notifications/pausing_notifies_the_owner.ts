@@ -2,7 +2,7 @@ import { defineJourney } from '../../src/journey/define_journey.js';
 import {
   changeLifecycle,
   createProfile,
-  expectNotificationQueued,
+  expectEmailDelivered,
   waitUntilThisItemIndexed,
 } from '../../src/steps/index.js';
 
@@ -11,9 +11,10 @@ import {
  * -- it is how they learn their profile stopped being visible, whether or
  * not they were the one who paused it.
  *
- * A different case id from J11 through the same pipeline, which is what
- * makes the pair worth having: J11 alone would pass with every case but
- * `account.aggregator_init` broken.
+ * A different event from J11 through the same pipeline, which is what
+ * makes the pair worth having: J11 alone would pass with every event but
+ * the onboarding one broken. Asserted as a delivered email; "paused" is in
+ * the subject and body of every target's copy.
  */
 export const pausingNotifiesTheOwner = {
   ...defineJourney({
@@ -25,12 +26,15 @@ export const pausingNotifiesTheOwner = {
       createProfile({ as: 'seeker' }),
       waitUntilThisItemIndexed(),
       changeLifecycle({ to: 'paused' }),
-      expectNotificationQueued({
-        forProfileAs: 'seeker',
+      expectEmailDelivered({
+        to: { profile: 'seeker' },
         about: 'their profile being paused',
-        templateIdIncludes: 'pause',
+        subjectIncludes: 'paused',
+        recordedAs: 'item.paused',
+        recordedDomain: 'seeker',
+        bodyIncludes: ['paused', 'http://localhost:5173/'],
       }),
     ],
   }),
-  requires: ['http', 'redis', 'postgres'] as const,
+  requires: ['http', 'redis', 'postgres', 'mail'] as const,
 };

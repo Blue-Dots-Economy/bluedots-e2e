@@ -9,6 +9,8 @@ const TARGET = {
   consentPath: null,
   brandPath: null,
   servedDomains: 'blue_dot/seeker,blue_dot/provider,blue_dot/service_provider',
+  networkId: 'blue_dot',
+  cataloguePath: '/schemas/blue_dot/ka-dhwd/ns-catalogue.json',
 };
 
 describe('buildStackEnv', () => {
@@ -102,5 +104,37 @@ describe('aggregator realm rendering', () => {
     // differ the service gets 401 invalid_client, which reads like a
     // misconfigured realm rather than two values drifting apart.
     expect(env.SIGNALS_API_SECRET).toBe(env.KEYCLOAK_API_CLIENT_SECRET);
+  });
+});
+
+describe('notification settings', () => {
+  test('signals-api is given no HMAC pair and no sender address', () => {
+    // It authenticates to notification-service with its Keycloak client, and
+    // the sender identity belongs to notification-service.
+    const env = buildStackEnv(TARGET);
+
+    for (const key of [
+      'NOTIFICATION_SERVICE_KEY_ID',
+      'NOTIFICATION_SERVICE_SECRET',
+      'NOTIFICATION_FROM_EMAIL',
+    ]) {
+      expect(env, key).not.toHaveProperty(key);
+    }
+    expect(env.NOTIFICATION_SERVICE_ENDPOINT).toBeTruthy();
+    expect(env.KEYCLOAK_API_CLIENT_SECRET).toBeTruthy();
+  });
+
+  test('names support recipients, so a support request has somewhere to go', () => {
+    // Two recipients: signals-dpg sends to the first and copies the rest.
+    const env = buildStackEnv(TARGET);
+
+    expect(env.SUPPORT_EMAIL).toBe('support@bluedots.test,ops@bluedots.test');
+    expect(env.SUPPORT_CC_EMAIL).toBe('cc@bluedots.test');
+  });
+
+  test('leaves the fixed test OTP off, so a guardian code is really sent', () => {
+    const value = buildStackEnv(TARGET).CREATE_TEST_OTP;
+
+    expect(value === undefined || value === 'false').toBe(true);
   });
 });

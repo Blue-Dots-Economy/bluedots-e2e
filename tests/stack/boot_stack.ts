@@ -26,7 +26,8 @@ import { seedIdentities, type SeedResult } from '../../src/seed/identities.js';
 import { grantSearchCallerKey } from '../../src/seed/search_api_key.js';
 import { obtainUserToken } from '../../src/seed/token.js';
 import { createIngestProbe } from '../../src/awaiters/ingest_probe.js';
-import { createNotificationProbe } from '../../src/awaiters/notification_probe.js';
+import { createMailProbe } from '../../src/awaiters/mail_probe.js';
+import { createNotificationEvents } from '../../src/awaiters/notification_events.js';
 import { createParticipantKeys } from '../../src/env/participant_keys.js';
 import type { StepContext } from '../../src/journey/define_journey.js';
 import type { EnvironmentContext } from '../../src/env/provider.js';
@@ -36,7 +37,8 @@ export type BootedStack = {
   env: EnvironmentContext;
   seeded: SeedResult;
   probe: ReturnType<typeof createIngestProbe>;
-  notifications: ReturnType<typeof createNotificationProbe>;
+  mail: ReturnType<typeof createMailProbe>;
+  notificationEvents: ReturnType<typeof createNotificationEvents>;
   keys: ReturnType<typeof createParticipantKeys>;
   target: TargetSchemas;
   targetId: string;
@@ -187,9 +189,13 @@ async function seedBootedStack(
     redisUrl: env.endpoints.redisUrl,
     postgresUrl: env.endpoints.postgresUrl,
   });
-  // Same Redis, different keys: notification-service shares the stack's
-  // instance and writes its jobs to plain lists.
-  const notifications = createNotificationProbe({ redisUrl: env.endpoints.redisUrl });
+  // Delivered mail, read over Mailpit's API: notification-service sends
+  // real SMTP to the stack's mailpit. Nothing here reads its Redis.
+  const mail = createMailProbe({ baseUrl: env.endpoints.mailpit });
+  // The event types it recorded, from its own database through compose.
+  const notificationEvents = createNotificationEvents({
+    exec: (svc, cmd) => provider.exec(svc, cmd),
+  });
   // Lets a step act AS a participant rather than as the aggregator holding
   // the service key. Three routes -- self-create, accept, reveal -- act only
   // for the person `request.user.id` names, and no service credential stands
@@ -201,7 +207,8 @@ async function seedBootedStack(
     env,
     seeded,
     probe,
-    notifications,
+    mail,
+    notificationEvents,
     keys,
     target,
     targetId,
@@ -216,7 +223,8 @@ async function seedBootedStack(
       seeded: seeded as unknown as Record<string, unknown>,
       target,
       probe,
-      notifications,
+      mail,
+      notificationEvents,
       keys,
       auth: {
         apiKey: seeded.apiKey,
@@ -248,7 +256,6 @@ export async function teardownStack(stack: BootedStack | undefined): Promise<voi
     }
   }
   await stack?.probe?.close();
-  await stack?.notifications?.close();
   await stack?.keys?.close();
   await stack?.provider?.down();
 }
