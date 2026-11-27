@@ -52,6 +52,9 @@ updates:
       interval: "monthly"
       time: "03:00"
       timezone: "UTC"
+    # Hold new releases for 7 days (the threshold zizmor checks). Security updates are not delayed.
+    cooldown:
+      default-days: 7
     # Not the default 5. The limit counts open *version-update* pull requests,
     # and grouped updates plus a few singletons can sit right at 5 and silently
     # block any further pull request from being raised -- observed in
@@ -107,6 +110,8 @@ updates:
       # harder to read for no benefit.
       time: "03:15"
       timezone: "UTC"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "ci"
