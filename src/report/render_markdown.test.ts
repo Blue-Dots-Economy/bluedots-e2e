@@ -161,10 +161,10 @@ describe('renderMarkdown', () => {
   test('escapes a backslash too, or it would cancel the escaped pipe', () => {
     const md = renderMarkdown({
       ...PASSING,
-      journeys: [{ ...J2_PASS, title: 'A \\| B becomes findable' }],
+      journeys: [{ ...J2_PASS, title: String.raw`A \| B becomes findable` }],
     });
 
-    expect(md).toContain('A \\\\\\| B becomes findable');
+    expect(md).toContain(String.raw`A \\\| B becomes findable`);
   });
 
   test('says nothing about failures when there are none', () => {

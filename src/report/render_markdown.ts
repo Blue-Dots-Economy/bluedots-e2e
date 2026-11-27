@@ -4,7 +4,8 @@ import { classifyFailure } from './failure_class.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
 
 /** A pipe ends a table cell, so it is escaped, and so is a backslash that would cancel that escape. */
-const cell = (text: string) => text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+const cell = (text: string) =>
+  text.replaceAll('\\', String.raw`\\`).replaceAll('|', String.raw`\|`).replaceAll('\n', ' ');
 
 
 const MARK = { passed: '✅', failed: '❌', skipped: '⏭️' } as const;
