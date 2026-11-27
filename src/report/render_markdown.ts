@@ -3,8 +3,8 @@ import { duration, failedRequests, isFailedRequest, seconds } from './format.js'
 import { classifyFailure } from './failure_class.js';
 import type { HttpEntryView, RunReport } from './render_html.js';
 
-/** A pipe ends a table cell, so any text going into one has to lose it. */
-const cell = (text: string) => text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+/** A pipe ends a table cell, so it is escaped, and so is a backslash that would cancel that escape. */
+const cell = (text: string) => text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 
 const MARK = { passed: '✅', failed: '❌', skipped: '⏭️' } as const;
